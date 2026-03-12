@@ -61,7 +61,7 @@ badgelink:
 	git clone https://github.com/badgeteam/esp32-component-badgelink.git badgelink
 	cd badgelink/tools; ./install.sh
 
-APP_SLUG ?= com.example.template
+APP_SLUG ?= at.cavac.blinkensisters
 APP_INSTALL_BASE_PATH ?= /int/apps/
 APP_INSTALL_PATH = $(APP_INSTALL_BASE_PATH)$(APP_SLUG)
 
@@ -79,7 +79,7 @@ install: build
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
 	@echo "Uploading application.bin..."
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/application.bin ../../$(BUILD)/application.bin
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/application.bin ../../$(BUILD)/tanmatsu-blinkensisters.bin
 	@echo "=== Installation complete ==="
 
 .PHONY: run
