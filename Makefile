@@ -58,7 +58,8 @@ BADGELINK_CONN := $(if $(findstring :,$(BADGELINKPORT)),--tcp $(BADGELINKPORT),-
 .PHONY: badgelink
 badgelink:
 	rm -rf badgelink
-	git clone https://github.com/badgeteam/esp32-component-badgelink.git badgelink
+	#git clone https://github.com/badgeteam/esp32-component-badgelink.git badgelink
+	git clone https:///github.com/nullislandspace/esp32-component-badgelink.git badgelink
 	cd badgelink/tools; ./install.sh
 
 APP_SLUG ?= at.cavac.blinkensisters
