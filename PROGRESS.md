@@ -1,6 +1,6 @@
 # BlinkenSisters Tanmatsu Port - Progress
 
-## Status: Step 1 COMPLETE - Clean build achieved (2026-03-11)
+## Status: Step 7 IN PROGRESS - Gameplay testing (2026-03-12)
 
 ## Completed Work
 
@@ -16,21 +16,39 @@
 ### PAL Layer (`main/pal/`)
 - [x] `pal_types.h` - SDL type aliases (Uint8/16/32, Sint*, SDL_Color, SDL_Rect, SDL_MUSTLOCK stubs)
 - [x] `pal_surface.h` + `pal_surface.cpp` - BS_Surface (PSRAM), blit, colorkey, fill, IMG_Load stub
+  - [x] `SDL_DisplayFormat` returns `BS_DupSurface(s)` (copy, not same pointer) — fixes dangling pointer on Quit
+  - [x] `BS_BlitSurface` skips alpha=0 pixels in non-colorkey path — fixes sprite transparency
 - [x] `pal_screen.h` + `pal_screen.cpp` - phys_fb, BS_Flip (270° rotation), bsp_display_blit
+  - [x] Backlight enabled via `bsp_display_set_backlight_brightness(100)` in BS_InitScreen
 - [x] `pal_time.h` + `pal_time.cpp` - SDL_GetTicks/SDL_Delay via esp_timer/vTaskDelay
 - [x] `pal_input.h` + `pal_input.cpp` - BSP navigation events → JOYSTICK_MOVE bitmask
-  - Jump: UP nav or SPACE_M/SPACE_L; Action: RETURN; Pause: F1; Turbo: F2
+  - [x] Full keyboard/scancode support via BSP input events
+  - [x] SDL_Event ring buffer (32 events) with PAL_PollEvent
+  - [x] Scancode mapping: ESC→SDLK_ESCAPE, TAB→SDLK_TAB, ENTER→SDLK_RETURN, SPACE→SDLK_SPACE
+  - [x] ASCII keyboard events generate SDLK values for letters/numbers
 - [x] `pal_audio.h` + `pal_audio.cpp` - minimp3 streaming task + PCM FX cache
+  - [x] Music path uses `configGetPath(fname)` for correct version directory
+  - [x] Volume set to 100% via `bsp_audio_set_volume(100.0)`
 - [x] `pal_font.h` + `pal_font.cpp` - Hershey vector font replacing SDL_ttf
 
 ### Shared Files (`main/shared/`)
-- [x] `globals.h` - TANMATSU_BUILD flags, fixed 800×480, SD paths, PAL includes
+- [x] `globals.h` - TANMATSU_BUILD flags, fixed 800x480, SD paths, PAL includes
 - [x] `osdef.h` / `osdef.cpp` - stripped of SDL/Win32, MKDIR + BS_strdup
 - [x] `bsscreen.h` / `bsscreen.cpp` - thin shim to pal_screen
 - [x] `errorhandler.h` / `errorhandler.cpp` - ESP_LOGE based
 - [x] `fonthandler.h` / `fonthandler.cpp` - thin shim to pal_font
-- [x] `drawprimitives.h` / `drawprimitives.cpp` - BS_Surface wrappers, IMG_Load placeholder
-- [x] `config.cpp` - SD card paths (/sd/blinkensisters/, /sd/apps/at.cavac.blinkensisters/)
+- [x] `drawprimitives.h` / `drawprimitives.cpp` - BS_Surface wrappers, image loaders
+- [x] `config.cpp` - SD card paths, `.extracted` marker to skip re-extraction on subsequent boots
+- [x] `extractmetabmf.cpp` - uses fastopen, shows extraction status on screen, #ifdef DISABLE_BACKGROUND_ART guards preserved
+
+### Image Loading (`main/shared/drawprimitives.cpp`)
+- [x] BMP decoder: 8-bit (paletted), 24-bit and 32-bit uncompressed, top-down and bottom-up
+- [x] PNG decoder: lodepng with custom PSRAM allocators (`lodepng_malloc/realloc/free`)
+- [x] JPEG decoder: ESP32-P4 hardware JPEG engine via `esp_driver_jpeg` (lazy init, BGR888 → RGBA32)
+  - [x] Manual PSRAM fallback when `jpeg_alloc_decoder_mem` fails for output buffer
+- [x] Format detection by file extension (case-insensitive)
+- [x] lodepng.h + lodepng.cpp copied to `main/pal/` as single-file library
+- [x] CMakeLists.txt: added `esp_driver_jpeg` to PRIV_REQUIRES, `-DLODEPNG_NO_COMPILE_ALLOCATORS`
 
 ### Game Files (`main/game/`)
 - [x] `joystick.cpp` - thin shim to PAL_GetJoystickMoves
@@ -44,33 +62,27 @@
 - [x] `LuaMain/loadlib.cpp` - stubbed under TANMATSU_BUILD
 
 ### Entry Point
-- [x] `main.cpp` - app_main, BSP init, correct audio init sequence (from tanmatsu-tadoom), game_task (32KB stack)
+- [x] `main.cpp` - app_main, BSP init, game_task with 64KB PSRAM stack via xTaskCreateStaticPinnedToCore
 
 ## Build Status
-- **Clean build as of 2026-03-11**: 0xb4eb0 bytes (740KB), 65% of partition free
+- **Clean build as of 2026-03-12**: ~0xc8f70 bytes (823KB), 61% of partition free
 
-## Completed Work (continued)
+## Known Issues
 
-### Image Loading (`main/shared/drawprimitives.cpp`)
-- [x] BMP decoder: 24-bit and 32-bit uncompressed, top-down and bottom-up, PSRAM pixel buffer
-- [x] PNG decoder: lodepng (20260119) with custom PSRAM allocators (`lodepng_malloc/realloc/free`)
-- [x] JPEG decoder: ESP32-P4 hardware JPEG engine via `esp_driver_jpeg` (lazy init, BGR888 → RGBA32)
-- [x] Format detection by file extension (case-insensitive)
-- [x] lodepng.h + lodepng.cpp copied to `main/pal/` as single-file library
-- [x] CMakeLists.txt: added `esp_driver_jpeg` to PRIV_REQUIRES, `-DLODEPNG_NO_COMPILE_ALLOCATORS`
+### JPEG hardware decoder limitations
+- ESP32-P4 `jpeg_decoder_get_info` only parses SOF0 (baseline JPEG); progressive JPEGs return 0x0 dimensions
+- Converted all 64 progressive JPEGs in blinkensisters source to baseline — still failing on device
+- **Workaround**: Background art disabled (`DISABLE_BACKGROUND_ART=1`) to unblock other testing
+- **TODO**: Investigate further — may need software JPEG fallback (stb_image.h or esp_jpeg component)
 
-### Image format inventory (from original game source):
-- BMP: sprites, tiles, monsters (colorkey transparency via SDL_SetColorKey)
-- PNG: foreground objects, fire tiles, sign tiles (alpha transparency)
-- JPEG: level backgrounds, menu/gameover/highscore screens
+### Missing sprite files
+- `sister_movenone.bmp`, `sister_moveleftup.bmp`, etc. not present in 24c3 addon — player invisible when idle
+- May need fallback to `sister_moveleft.bmp` or addon-specific fix
 
 ## Next Steps
-
-- [ ] Step 2 (verify on HW): Flash and check display/audio basics, image loading
-- [ ] Step 4: Test Lua VM executes correctly on PSRAM
-- [ ] Step 5: Game loop - menu renders on screen, button navigation works
-- [ ] Steps 6-10: Level loading, sprites, audio, HUD, polish
-
-## Known Limitations (to fix for full gameplay)
-1. Audio FX loading: reads MP3 from SD but no FX files preloaded at startup yet
-2. First-run BMF extraction: untested on hardware (extractmetabmf.cpp + config.cpp)
+- [ ] Test keyboard input (Escape/Tab/Enter via scancodes)
+- [ ] Test sprite transparency fix (alpha=0 pixels skipped)
+- [ ] Step 7: Level loading & rendering — tiles, player physics, collision, monsters, Lua triggers
+- [ ] Step 8: Audio — music streaming, sound FX on events
+- [ ] Step 9: HUD & menu fonts verification
+- [ ] Step 10: Polish, optimize FPS, memory profiling, fix JPEG decoder for backgrounds
