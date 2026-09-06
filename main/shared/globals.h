@@ -9,7 +9,9 @@
 #define TANMATSU_BUILD 1
 #define DISABLE_NETWORK 1
 #define DISABLE_SOUND_STUB 0  // We have real audio via PAL
-#define DISABLE_BACKGROUND_ART 1  // Uncomment to save memory by disabling background art
+// Background art is enabled. To disable it and save memory, define
+// DISABLE_BACKGROUND_ART here (there is a matching, also commented-out, line
+// in main/CMakeLists.txt -- either one turns it off, so both must stay off).
 #define ALLOW_BOSSKEY 1
 
 // App paths

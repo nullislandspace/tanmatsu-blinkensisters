@@ -42,9 +42,9 @@ void initGui() {
 	amask = 0xff000000;
 #endif
 
-	SDL_Surface* temp = SDL_CreateRGBSurface(SDL_SWSURFACE, SCR_WIDTH, SCR_HEIGHT, 32, rmask, gmask, bmask, amask);
-	GUI_Surface = SDL_DisplayFormat(temp);
-	SDL_FreeSurface(temp);
+	// SDL_DisplayFormat is a plain copy on this port, so wrapping a surface
+	// that was just created empty only allocated it twice.
+	GUI_Surface = SDL_CreateRGBSurface(SDL_SWSURFACE, SCR_WIDTH, SCR_HEIGHT, 32, rmask, gmask, bmask, amask);
 
 }
 

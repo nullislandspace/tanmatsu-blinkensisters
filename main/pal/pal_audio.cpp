@@ -76,7 +76,10 @@ typedef struct {
     const int16_t* samples;
     size_t         num_samples;
     int            channels;
-    uint32_t       pos_q16;     // read cursor in frames, 16.16 fixed point
+    // 16.16 fixed point, and 64-bit on purpose: in 32 bits the cursor wraps
+    // after 65536 frames -- 1.49 s at 44100 Hz -- and the voice restarts
+    // instead of ending, which left the death sound looping forever.
+    uint64_t       pos_q16;     // read cursor in frames, 16.16 fixed point
     uint32_t       step_q16;    // frames advanced per output frame
     bool           active;
 } Voice;
@@ -180,7 +183,7 @@ static void voice_start(const PCM_FX_Entry* e) {
     // All voices busy: steal the one furthest through its sample, which is
     // the one closest to finishing anyway.
     if (!v) {
-        uint32_t best = 0;
+        uint64_t best = 0;
         for (int i = 0; i < MAX_VOICES; i++) {
             if (s_voices[i].pos_q16 >= best) { best = s_voices[i].pos_q16; v = &s_voices[i]; }
         }
@@ -215,7 +218,7 @@ static void mix_voices(int32_t* accum, int frames) {
 
         size_t total_frames = v->num_samples / (size_t)v->channels;
         for (int f = 0; f < frames; f++) {
-            size_t src_frame = v->pos_q16 >> 16;
+            size_t src_frame = (size_t)(v->pos_q16 >> 16);
             if (src_frame >= total_frames) { v->active = false; break; }
             const int16_t* sp = v->samples + src_frame * (size_t)v->channels;
             int32_t l = sp[0];

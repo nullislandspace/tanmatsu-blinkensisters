@@ -36,6 +36,12 @@ void renderFontHandlerText(Sint32 x, Sint32 y, const char* text,
                            SDL_Color fontcolor, bool hcentered, bool vcentered,
                            TTF_Font* renderfont);
 
+// Width in pixels of `text` in `renderfont`, for the widest line if it has
+// several. The Hershey glyphs are considerably wider than the TTF faces the
+// original layouts were measured against, so anything laid out in fixed
+// columns has to ask rather than assume.
+int fontHandlerTextWidth(const char* text, TTF_Font* renderfont);
+
 // Common colors
 extern SDL_Color BS_Color_WHITE;
 extern SDL_Color BS_Color_RED;

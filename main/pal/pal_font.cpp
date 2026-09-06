@@ -63,6 +63,28 @@ static int count_lines(const char* text) {
     return lines;
 }
 
+int fontHandlerTextWidth(const char* text, TTF_Font* renderfont) {
+    if (!text) return 0;
+    float font_height = renderfont ? (float)renderfont->size : 20.0f;
+    float scale = font_height / (float)HERSHEY_BASE_HEIGHT;
+
+    int widest = 0;
+    const char* line_start = text;
+    while (line_start && *line_start) {
+        const char* line_end = strchr(line_start, '\n');
+        size_t len = line_end ? (size_t)(line_end - line_start) : strlen(line_start);
+        char line_buf[512];
+        if (len >= sizeof(line_buf)) len = sizeof(line_buf) - 1;
+        memcpy(line_buf, line_start, len);
+        line_buf[len] = '\0';
+        int w = hershey_text_width(line_buf, scale);
+        if (w > widest) widest = w;
+        if (!line_end) break;
+        line_start = line_end + 1;
+    }
+    return widest;
+}
+
 void renderFontHandlerText(Sint32 x, Sint32 y, const char* text,
                            SDL_Color fontcolor, bool hcentered, bool vcentered,
                            TTF_Font* renderfont) {

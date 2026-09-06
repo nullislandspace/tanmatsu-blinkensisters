@@ -160,6 +160,7 @@ void displayIntro()
 	initIntro();
 
 	bool displayIntro = true;
+	flushJoystick();
 	while (displayIntro)
 	{
 		// Render stuff
@@ -170,8 +171,9 @@ void displayIntro()
 			displayIntro = false;
 		}
 
-		// Poll for events, and handle the ones we care about.
-		Uint32 joymove = getJoystickMoves();
+		// Poll for events, and handle the ones we care about. On release, so a
+		// key held over from the previous screen does not skip the intro.
+		Uint32 joymove = getJoystickReleases();
 		if(joymove & JOYSTICK_JUMP || joymove & JOYSTICK_ACTION) {
 			displayIntro = false;
 			attracktModeRunning = false;
@@ -191,7 +193,7 @@ void displayIntro()
 					}
 					break;
 				case SDL_QUIT:
-					exit(0);
+					quitToLauncher();
 			}
 		}
 	}

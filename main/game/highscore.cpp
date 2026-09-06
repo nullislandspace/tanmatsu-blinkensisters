@@ -61,6 +61,8 @@ void enterHighscore(Uint32 score, Uint32 level) {
 	}
 
 	bool enteringName = true;
+
+	flushJoystick();
 	char name[100];
 	name[0] = '\0';
 	Uint32 i;
@@ -117,7 +119,7 @@ void enterHighscore(Uint32 score, Uint32 level) {
 					}
 					break;
 				case SDL_QUIT:
-					exit(0);
+					quitToLauncher();
 			}
 		}
 		if(enteringName) {
@@ -225,8 +227,9 @@ void waitHighscore() {
 	// Poll for events, and handle the ones we care about.
 	bool running = true;
 	Uint32 waitUntil = SDL_GetTicks() + 10000;
+	flushJoystick();
 	while(running) {
-		Uint32 joymove = getJoystickMoves();
+		Uint32 joymove = getJoystickReleases();
 		if((joymove & JOYSTICK_JUMP) || (joymove & JOYSTICK_ACTION) || (SDL_GetTicks() > waitUntil)) {
 			running = false;
 		}
@@ -244,7 +247,7 @@ void waitHighscore() {
 					}
 					break;
 				case SDL_QUIT:
-					exit(0);
+					quitToLauncher();
 			}
 		}
 		// Require less CPU
@@ -320,7 +323,7 @@ void submitInternetHighscore(Uint32 score, Uint32 level) {
 					}
 					break;
 				case SDL_QUIT:
-					exit(0);
+					quitToLauncher();
 			}
 		}
 		if(enteringName) {

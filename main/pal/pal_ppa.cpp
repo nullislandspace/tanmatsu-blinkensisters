@@ -32,11 +32,12 @@ static const char* TAG = "pal_ppa";
 #define PPA_CACHE_LINE       128
 
 // Whether the flip asks the PPA to transpose red and blue on the way in.
-// A BS pixel is byte order R,G,B,A, while the PPA reads ARGB8888 as byte
-// order B,G,R,A, so it sees the two colour channels the wrong way round and
-// this puts them back. If the panel ever comes up with reds and blues
-// exchanged, this one flag is the thing to flip.
-#define PPA_FLIP_RGB_SWAP    true
+// Verified on the panel: false is correct. The driver documents rgb_swap as
+// turning "ARGB into BGRA", which reads as an R/B swap but is in fact a full
+// byte reversal, and that already lines a BS pixel (byte order R,G,B,A) up
+// with the RGB888 byte order the panel wants. Turning it on visibly
+// exchanged reds and blues.
+#define PPA_FLIP_RGB_SWAP    false
 
 static ppa_client_handle_t s_srm_client  = NULL;
 static ppa_client_handle_t s_fill_client = NULL;

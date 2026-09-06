@@ -806,17 +806,46 @@ void engineDoRender(COLOR3D mode3D)
 
 
 	char printString[100];
-	sprintf(printString, "Pixels: %u (%u)", foundPixels, lhandle.numPixels);
-	renderFontHandlerText(20 + txtoffs, 2, printString, TEXTINFO_COLOR, false, false, FONT_textfont_20);
 
-	sprintf(printString, "Lives: %u", gamedata.player->lives);
-	renderFontHandlerText(190 + txtoffs, 2, printString, TEXTINFO_COLOR, false, false, FONT_textfont_20);
+	/* The status line used to sit in fixed columns at 20/190/310/440, spaced
+	   for the proportional TTF face the original used. The Hershey vector font
+	   that replaces it is much wider -- "Pixels: 123 (456)" alone overruns the
+	   170px it was given -- so the fields ran into each other. Lay them out
+	   left to right from their measured widths instead, which also keeps them
+	   apart as the numbers grow. */
+	{
+		char fields[4][100];
+		sprintf(fields[0], "Pixels: %u (%u)", foundPixels, lhandle.numPixels);
+		sprintf(fields[1], "Lives: %u", gamedata.player->lives);
+		sprintf(fields[2], "Level: %u", gamedata.player->level);
+		sprintf(fields[3], "Score: %u", gamedata.player->score);
 
-	sprintf(printString, "Level: %u", gamedata.player->level);
-	renderFontHandlerText(310 + txtoffs, 2, printString, TEXTINFO_COLOR, false, false, FONT_textfont_20);
+		const Sint32 gap = 16;
+		Sint32 total = 0;
+		Sint32 widths[4];
+		for(int i = 0; i < 4; i++) {
+			widths[i] = fontHandlerTextWidth(fields[i], FONT_textfont_20);
+			total += widths[i];
+		}
+		total += gap * 3;
 
-	sprintf(printString, "Score: %u", gamedata.player->score);
-	renderFontHandlerText(440 + txtoffs, 2, printString, TEXTINFO_COLOR, false, false, FONT_textfont_20);
+		/* If even the measured layout will not fit, shrink the gaps first and
+		   then start at the left edge; better cramped than overlapping. */
+		Sint32 usegap = gap;
+		if(total > SCR_WIDTH - 40) {
+			usegap = 6;
+			total = widths[0] + widths[1] + widths[2] + widths[3] + usegap * 3;
+		}
+		Sint32 fx = 20;
+		if(total < SCR_WIDTH - 40) {
+			/* Spread the slack evenly so the line still spans the bar. */
+			usegap += (SCR_WIDTH - 40 - total) / 3;
+		}
+		for(int i = 0; i < 4; i++) {
+			renderFontHandlerText(fx + txtoffs, 2, fields[i], TEXTINFO_COLOR, false, false, FONT_textfont_20);
+			fx += widths[i] + usegap;
+		}
+	}
 
 	if(enteringCheat) {
 		if(!enableQuickDraw) {
@@ -838,20 +867,26 @@ void engineDoRender(COLOR3D mode3D)
 		} else {
 			renderFontHandlerText(20 + txtoffs, 25, printString, TEXTINFO_COLOR, false, false, FONT_textfont_20) ;
 		} ;
+		/* Start the bar past the label rather than at a fixed x=200, which the
+		   wider Hershey text runs straight through. */
+		Sint32 barx = 20 + fontHandlerTextWidth(printString, FONT_textfont_20) + 20;
+		Sint32 barw = SCR_WIDTH - 40 - barx;
+		if(barw > 300) barw = 300;
 		Uint32 timebar = 0;
-		if(lhandle.remaintime <= lhandle.leveltime) {
-			timebar = (Uint32)(((lhandle.leveltime - lhandle.remaintime) * 300.0) / lhandle.leveltime);
-			drawrect(200, 35, timebar, 7, 0xff0000);
-			drawrect(200 + timebar, 35, 300-timebar, 7, 0x00ff00);
-		} else {
-			drawrect(200, 35, 300, 7, 0x00ff00);
-			drawrect(201, 36, 298, 5, (Uint32)(blinkbright + blinkbright * 256 + blinkbright * 65536));
-			SDL_Color blibri1 = {(Uint8)blinkbright, (Uint8)blinkbright, (Uint8)blinkbright, 0};
-			SDL_Color blibri2 = {(Uint8)(255 - blinkbright), (Uint8)(255 - blinkbright), (Uint8)(255 - blinkbright), (Uint8)blinkbright};
-			renderFontHandlerText(520 + txtoffs, 27, "Bonus", blibri1, false, false, FONT_textfont_8);
-			renderFontHandlerText(530 + txtoffs, 33, "Time", blibri2, false, false, FONT_textfont_8) ;
+		if(barw > 0) {
+			if(lhandle.remaintime <= lhandle.leveltime) {
+				timebar = (Uint32)(((lhandle.leveltime - lhandle.remaintime) * (double)barw) / lhandle.leveltime);
+				drawrect(barx, 35, timebar, 7, 0xff0000);
+				drawrect(barx + timebar, 35, barw - timebar, 7, 0x00ff00);
+			} else {
+				drawrect(barx, 35, barw, 7, 0x00ff00);
+				drawrect(barx + 1, 36, barw - 2, 5, (Uint32)(blinkbright + blinkbright * 256 + blinkbright * 65536));
+				SDL_Color blibri1 = {(Uint8)blinkbright, (Uint8)blinkbright, (Uint8)blinkbright, 0};
+				SDL_Color blibri2 = {(Uint8)(255 - blinkbright), (Uint8)(255 - blinkbright), (Uint8)(255 - blinkbright), (Uint8)blinkbright};
+				renderFontHandlerText(barx + barw + 20 + txtoffs, 27, "Bonus", blibri1, false, false, FONT_textfont_8);
+				renderFontHandlerText(barx + barw + 30 + txtoffs, 33, "Time", blibri2, false, false, FONT_textfont_8) ;
+			}
 		}
-
 	}
 
 	renderFontHandlerText(20 + txtoffs, 45, errorMessage, TEXTINFO_TIMEALERT, true, true, FONT_menufont_20);
@@ -945,6 +980,7 @@ void displayEngine(const char* attrackModeFile)
 		}
 
 		// Catch all user input. Poll for events, and handle the ones we care about.
+		flushJoystick();
 		while(gameRunning) {
 			while(SDL_PollEvent(&event)) {
 				switch (event.type)
@@ -954,10 +990,10 @@ void displayEngine(const char* attrackModeFile)
 						attracktModeRunning = false;
 						break;
 					case SDL_QUIT:
-						exit(0);
+						quitToLauncher();
 				}
 			}
-			Uint32 joymove = getJoystickMoves();
+			Uint32 joymove = getJoystickReleases();
 			if(joymove & JOYSTICK_JUMP || joymove & JOYSTICK_ACTION) {
 				gameRunning = false;
 				attracktModeRunning = false;
@@ -1010,13 +1046,15 @@ void displayEngine(const char* attrackModeFile)
 			updown = 0;
 		}
 
-		if(joymove & JOYSTICK_ACTION) {
+		// Action and pause fire once per press, on release. Reading the held
+		// state re-triggered them on every frame the key was down, which for
+		// a toggle (pause, or the antigrav field in LostPixels level 8) meant
+		// it flipped back and forth as fast as the game drew.
+		Uint32 joyrelease = getJoystickReleases();
+		if(joyrelease & JOYSTICK_ACTION) {
 			doFGPlayerAction((Uint32)spritex, (Uint32)spritey);
 		}
-
-		// Pause toggles once per keypress, on release: reading the held state
-		// here flipped it again on every frame the key was down.
-		if(getJoystickReleases() & JOYSTICK_PAUSE) {
+		if(joyrelease & JOYSTICK_PAUSE) {
 			isPauseMode = !isPauseMode;
 		}
 
@@ -1094,7 +1132,11 @@ void displayEngine(const char* attrackModeFile)
 					} else if (event.key.keysym.sym == SDLK_PLUS ||
 						event.key.keysym.sym == SDLK_RIGHTBRACKET) {
 						turboKeyPressed = false;
-					} else if (enteringCheat == false && event.key.keysym.sym == SDLK_RETURN) {
+					} else if (enteringCheat == false && event.key.keysym.sym == SDLK_m) {
+						/* Was RETURN, which on this keyboard is also the action
+						   key (JOYSTICK_ACTION) -- so every use of the action,
+						   such as the antigrav toggle in LostPixels level 8,
+						   also flipped the music on or off. */
  	   					if(lhandle.musicPlaying == true) {
 				 			lhandle.musicPlaying = false;
 				 			soundStopMusic();
