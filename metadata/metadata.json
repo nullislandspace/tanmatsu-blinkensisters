@@ -4,13 +4,13 @@
   "categories": [
     "games"
   ],
-  "version": "0.0.1",
+  "version": "0.5.4",
   "icon": {
     "16x16": "icon16.png",
     "32x32": "icon32.png",
     "64x64": "icon64.png"
   },
-  "author": "Badgeteam",
+  "author": "Rene cavac Schickbauer",
   "license_type": "MIT",
   "application": [
     {
@@ -18,13 +18,38 @@
         "tanmatsu",
         "konsool"
       ],
-      "revision": 1,
+      "external_only": true,
+      "revision": 2,
       "type": "appfs",
       "executable": "application.bin",
       "assets": [
         {
-          "source_file": "application.bin",
-          "target_file": "application.bin"
+          "source_file": "basedata.bmf",
+          "target_file": "basedata.bmf"
+        },
+        {
+          "source_file": "addons/LostPixels.bmf",
+          "target_file": "addons/LostPixels.bmf"
+        },
+        {
+          "source_file": "addons/24c3.bmf",
+          "target_file": "addons/24c3.bmf"
+        },
+        {
+          "source_file": "addons/icy.bmf",
+          "target_file": "addons/icy.bmf"
+        },
+        {
+          "source_file": "addons/mz_escape.bmf",
+          "target_file": "addons/mz_escape.bmf"
+        },
+        {
+          "source_file": "addons/mz_pnog.bmf",
+          "target_file": "addons/mz_pnog.bmf"
+        },
+        {
+          "source_file": "addons/s23_ivorytower.bmf",
+          "target_file": "addons/s23_ivorytower.bmf"
         }
       ]
     }

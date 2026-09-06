@@ -81,17 +81,31 @@ install: build
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon32.png ../../metadata/icon32.png
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
-	@echo "TEMPORARILY SKIPPING BMF upload (already on device, speeds up testing)"
-#	@echo "Uploading basedata.bmf (this takes a while)..."
-#	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/basedata.bmf ../../sdcard/basedata.bmf
-#	@echo "Creating directory $(APP_INSTALL_PATH)/addons..."
-#	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/addons || true
-#	@echo "Uploading addon BMFs..."
-#	cd badgelink/tools; for f in ../../sdcard/addons/*.bmf; do \
-#		echo "  $$(basename $$f)"; \
-#		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
-#	done
 	@echo "=== Installation complete ==="
+	@echo "(Game data is NOT uploaded by this target: run 'make installbmf'.)"
+
+# The BMF game data is ~70 MB and takes minutes to upload, but it only changes
+# when the artwork does -- so it is a separate target rather than part of every
+# install. Run it on a fresh device, and again after anything under sdcard/
+# changes; otherwise the device keeps running the data already on it.
+.PHONY: installbmf
+installbmf:
+	@echo "=== Installing game data ==="
+	@echo "Creating directory $(APP_INSTALL_PATH)..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH) || true
+	@echo "Uploading basedata.bmf (this takes a while)..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/basedata.bmf ../../sdcard/basedata.bmf
+	@echo "Creating directory $(APP_INSTALL_PATH)/addons..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/addons || true
+	@echo "Uploading addon BMFs..."
+	cd badgelink/tools; for f in ../../sdcard/addons/*.bmf; do \
+		echo "  $$(basename $$f)"; \
+		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
+	done
+	@echo "=== Game data installed ==="
+	@echo "NOTE: the game only unpacks the BMFs once. Delete"
+	@echo "      /sd/blinkensisters/V<version>/.extracted on the device to force"
+	@echo "      re-extraction after changing the data."
 
 .PHONY: run
 run:
