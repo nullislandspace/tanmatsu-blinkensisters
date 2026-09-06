@@ -326,9 +326,7 @@ SDL_Surface* BS_IMG_Load_DisplayFormat(const char* filename, bool die_on_error) 
         if (die_on_error) {
             DIE(ERROR_IMAGE_READ, filename);
         }
-        // Return 1x1 black placeholder so callers don't crash on NULL
-        surf = BS_CreateSurface(1, 1);
-        if (surf) surf->pixels[0] = 0xff000000;
+        return NULL;
     }
     return surf;
 }
