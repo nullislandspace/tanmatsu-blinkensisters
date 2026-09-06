@@ -105,10 +105,23 @@ Uint32 blend_alpha(const Uint32 source, const Uint32 target, const Uint32 factor
 
 }
 
+/* The rect blends below work on RGB565 directly rather than unpacking each
+   pixel to 32 bits, blending, and repacking. Two things made that expensive:
+   the round trip itself, and blend_mul()/blend_add() re-splitting the factor
+   into channels for every single pixel even though it is constant for the
+   whole rect. Pulling the factor out and scaling in 5/6-bit channels does the
+   same job in a handful of instructions. */
+
 void blend_darkenRect(const Sint32 x, const Sint32 y, const Sint32 width, const Sint32 height, const Uint32 factor)
 {
 	Sint32 i, j;
 	Sint32 pitch = gScreen->w;
+
+	/* factor is a 32-bit game colour (0xAABBGGRR); its 8-bit channels scale
+	   the 5/6-bit ones, so (channel * f) >> 8 keeps the same range. */
+	const Uint32 fr = (factor      ) & 0xff;
+	const Uint32 fg = (factor >>  8) & 0xff;
+	const Uint32 fb = (factor >> 16) & 0xff;
 
     if ( SDL_MUSTLOCK(gScreen) )
     {
@@ -144,8 +157,11 @@ void blend_darkenRect(const Sint32 x, const Sint32 y, const Sint32 width, const 
 			// and no pixels get drawn!
 
 			for (j = 0; j < len; j++) {
-				gScreen->pixels[ofs + j] =
-					BS_PackOpaque(blend_mul(BS_Unpack(gScreen->pixels[ofs + j]), factor));
+				BS_Pixel p = gScreen->pixels[ofs + j];
+				Uint32 r = (((p >> 11) & 0x1F) * fr) >> 8;
+				Uint32 g = (((p >>  5) & 0x3F) * fg) >> 8;
+				Uint32 b = (( p        & 0x1F) * fb) >> 8;
+				gScreen->pixels[ofs + j] = (BS_Pixel)((r << 11) | (g << 5) | b);
 			}
 		}
 	}
@@ -158,6 +174,12 @@ void blend_brightenRect(const Sint32 x, const Sint32 y, const Sint32 width, cons
 	Sint32 i, j;
 	Sint32 pitch = gScreen->w;
 
+	/* Added, so the factor's 8-bit channels are narrowed to the target's
+	   5/6 bits first. */
+	const Uint32 fr = ((factor      ) & 0xff) >> 3;
+	const Uint32 fg = ((factor >>  8) & 0xff) >> 2;
+	const Uint32 fb = ((factor >> 16) & 0xff) >> 3;
+
     if ( SDL_MUSTLOCK(gScreen) )
     {
         if ( SDL_LockSurface(gScreen) < 0 ) {
@@ -191,8 +213,14 @@ void blend_brightenRect(const Sint32 x, const Sint32 y, const Sint32 width, cons
 			// and no pixels get drawn!
 
 			for (j = 0; j < len; j++) {
-				gScreen->pixels[ofs + j] =
-					BS_PackOpaque(blend_add(BS_Unpack(gScreen->pixels[ofs + j]), factor));
+				BS_Pixel p = gScreen->pixels[ofs + j];
+				Uint32 r = ((p >> 11) & 0x1F) + fr;
+				Uint32 g = ((p >>  5) & 0x3F) + fg;
+				Uint32 b = ( p        & 0x1F) + fb;
+				if (r > 0x1F) r = 0x1F;
+				if (g > 0x3F) g = 0x3F;
+				if (b > 0x1F) b = 0x1F;
+				gScreen->pixels[ofs + j] = (BS_Pixel)((r << 11) | (g << 5) | b);
 			}
 		}
 	}

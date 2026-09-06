@@ -12,7 +12,6 @@ extern "C" {
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
-#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdcard.h"
@@ -152,24 +151,6 @@ extern "C" void app_main(void) {
         bsp_audio_set_amplifier(true);
         bsp_audio_set_volume(100.0);
 
-    }
-
-    // Hold the clocks up.
-    //
-    // Dynamic frequency scaling is enabled (CONFIG_PM_ENABLE) and will drop
-    // APB to 40 MHz when the CPU looks idle -- which is exactly what a frame
-    // does, since it spends most of its time blocked waiting for the PPA. The
-    // PPA and its DMA run off that clock, so letting it sag throttles the very
-    // transfers we are waiting on.
-    {
-        static esp_pm_lock_handle_t cpu_lock = NULL;
-        static esp_pm_lock_handle_t apb_lock = NULL;
-        if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "bs_cpu", &cpu_lock) == ESP_OK) {
-            esp_pm_lock_acquire(cpu_lock);
-        }
-        if (esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "bs_apb", &apb_lock) == ESP_OK) {
-            esp_pm_lock_acquire(apb_lock);
-        }
     }
 
     // Input queue
