@@ -1,7 +1,9 @@
 {
-  "name": "Template Application",
-  "description": "Template application",
-  "categories": ["tools"],
+  "name": "BlinkenSisters",
+  "description": "BlinkenSisters - Hunt for the Lost Pixels",
+  "categories": [
+    "games"
+  ],
   "version": "0.0.1",
   "icon": {
     "16x16": "icon16.png",
@@ -12,12 +14,18 @@
   "license_type": "MIT",
   "application": [
     {
-      "targets": ["tanmatsu", "konsool"],
+      "targets": [
+        "tanmatsu",
+        "konsool"
+      ],
       "revision": 1,
       "type": "esp32-app",
       "executable": "application.bin",
       "assets": [
-        {"source_file": "application.bin", "target_file": "application.bin"}
+        {
+          "source_file": "application.bin",
+          "target_file": "application.bin"
+        }
       ]
     }
   ]

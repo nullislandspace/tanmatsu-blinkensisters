@@ -63,12 +63,14 @@ badgelink:
 	cd badgelink/tools; ./install.sh
 
 APP_SLUG ?= at.cavac.blinkensisters
-APP_INSTALL_BASE_PATH ?= /int/apps/
+APP_INSTALL_BASE_PATH ?= /sd/apps/
 APP_INSTALL_PATH = $(APP_INSTALL_BASE_PATH)$(APP_SLUG)
 
 .PHONY: install
 install: build
 	@echo "=== Installing application ==="
+	@echo "Uploading application.bin to AppFS as $(APP_SLUG)..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) appfs upload $(APP_SLUG) "BlinkenSisters" 0 ../../$(BUILD)/tanmatsu-blinkensisters.bin
 	@echo "Creating directory $(APP_INSTALL_PATH)..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH) || true
 	@echo "Uploading metadata.json..."
@@ -79,8 +81,15 @@ install: build
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon32.png ../../metadata/icon32.png
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
-	@echo "Uploading application.bin..."
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/application.bin ../../$(BUILD)/tanmatsu-blinkensisters.bin
+	@echo "Uploading basedata.bmf (this takes a while)..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/basedata.bmf ../../sdcard/basedata.bmf
+	@echo "Creating directory $(APP_INSTALL_PATH)/addons..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/addons || true
+	@echo "Uploading addon BMFs..."
+	cd badgelink/tools; for f in ../../sdcard/addons/*.bmf; do \
+		echo "  $$(basename $$f)"; \
+		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
+	done
 	@echo "=== Installation complete ==="
 
 .PHONY: run
