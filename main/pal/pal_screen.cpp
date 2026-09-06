@@ -14,16 +14,111 @@ static const char* TAG = "pal_screen";
 // size must both be aligned to it.
 #define PHYS_FB_ALIGN 128
 
+// Byte order the panel expects for each RGB888 pixel.
+//
+// 1 = B,G,R (what this port has always written, and what tanmatsu-tadoom
+// documents for its PAX_BUF_24_888RGB framebuffer on the same hardware);
+// 0 = R,G,B. This is THE knob for "every colour on screen has red and blue
+// exchanged" -- both the CPU rotation and the PPA one follow it, because
+// calibrate_flip() re-derives the PPA's setting from whatever this produces.
+#define PANEL_BYTES_BGR 1
+
 #define PHYS_FB_SIZE_RAW ((size_t)PHYS_W * PHYS_H * 3)
 #define PHYS_FB_SIZE     ((PHYS_FB_SIZE_RAW + PHYS_FB_ALIGN - 1) & ~(size_t)(PHYS_FB_ALIGN - 1))
 
 BS_Surface* gScreen = NULL;
 static uint8_t* phys_fb = NULL;
 static bool     s_use_ppa = false;
+static bool     s_flip_rgb_swap = false;
 
 // Job id for the one PPA op a flip submits. Ids only need to be unique among
 // the jobs in flight, and the flip drains its own, so a constant is fine.
-#define JOB_FLIP 1u
+#define JOB_FLIP    1u
+#define JOB_CALIBRATE 2u
+
+// Rotate one logical pixel buffer into a physical one, the way the CPU path
+// has always done it: physical (col, row) = logical (row, log_h - 1 - col),
+// written as byte order B,G,R -- which is what this panel's RGB888 wants (the
+// same convention tanmatsu-tadoom documents for its PAX framebuffer).
+static void rotate_reference(const Uint32* px, int log_w, int log_h,
+                             uint8_t* out, int phys_w) {
+    const int stride = phys_w * 3;
+    for (int ly = 0; ly < log_h; ly++) {
+        for (int lx = 0; lx < log_w; lx++) {
+            Uint32 p = px[(size_t)ly * log_w + lx];
+            uint8_t* d = out + (size_t)lx * stride + (size_t)(log_h - 1 - ly) * 3;
+#if PANEL_BYTES_BGR
+            d[0] = (uint8_t)((p >> 16) & 0xff);  // B
+            d[1] = (uint8_t)((p >>  8) & 0xff);  // G
+            d[2] = (uint8_t)((p      ) & 0xff);  // R
+#else
+            d[0] = (uint8_t)((p      ) & 0xff);  // R
+            d[1] = (uint8_t)((p >>  8) & 0xff);  // G
+            d[2] = (uint8_t)((p >> 16) & 0xff);  // B
+#endif
+        }
+    }
+}
+
+// Work out what the PPA's rgb_swap actually does, by doing it.
+//
+// The driver's description is ambiguous -- "ARGB becomes BGRA" reads as a
+// byte reversal, "RGB becomes BGR" as a red/blue swap -- and getting it wrong
+// transposes every colour on the panel, which is not something this code can
+// see. So rotate a small known pattern both ways and keep whichever matches
+// the CPU path byte for byte. If neither does, the hardware is doing
+// something unexpected and we stay on the CPU.
+static bool calibrate_flip(bool* out_rgb_swap) {
+    const int lw = 32, lh = 16;         // logical test image
+    const int pw = lh, ph = lw;         // its rotated shape
+    const size_t raw   = (size_t)pw * ph * 3;
+    const size_t bufsz = (raw + PHYS_FB_ALIGN - 1) & ~(size_t)(PHYS_FB_ALIGN - 1);
+
+    bool ok = false;
+    BS_Surface* test = BS_CreateSurface(lw, lh);
+    uint8_t* got  = (uint8_t*)heap_caps_aligned_alloc(PHYS_FB_ALIGN, bufsz, MALLOC_CAP_SPIRAM);
+    uint8_t* want = (uint8_t*)malloc(raw);
+    if (!test || !got || !want) {
+        goto done;
+    }
+
+    // A pattern with all three channels independent, so a swap of any two
+    // cannot go unnoticed.
+    for (int y = 0; y < lh; y++) {
+        for (int x = 0; x < lw; x++) {
+            uint8_t r = (uint8_t)(x * 8 + 1);
+            uint8_t g = (uint8_t)(y * 16 + 3);
+            uint8_t b = (uint8_t)(255 - x * 8);
+            test->pixels[(size_t)y * lw + x] = BS_MapRGBA(r, g, b, 0xff);
+        }
+    }
+    rotate_reference(test->pixels, lw, lh, want, pw);
+
+    for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+        bool swap = (attempt == 1);
+        memset(got, 0, bufsz);
+        esp_cache_msync(got, bufsz,
+                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+        PAL_PPA_FlushSurface(test);
+        if (!PAL_PPA_FlipToPanel(test, JOB_CALIBRATE, got, bufsz, pw, ph, swap)) {
+            continue;
+        }
+        PAL_PPA_WaitJob(JOB_CALIBRATE);
+        // The PPA wrote this by DMA; drop our stale lines before reading it.
+        esp_cache_msync(got, bufsz,
+                        ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+        if (memcmp(got, want, raw) == 0) {
+            *out_rgb_swap = swap;
+            ok = true;
+        }
+    }
+
+done:
+    if (test) BS_FreeSurface(test);
+    if (got)  heap_caps_free(got);
+    if (want) free(want);
+    return ok;
+}
 
 void BS_InitScreen(void) {
     if (!gScreen) {
@@ -51,6 +146,16 @@ void BS_InitScreen(void) {
     // it is a single hardware op. A failure here is not fatal: s_use_ppa stays
     // false and the CPU path runs instead.
     s_use_ppa = PAL_PPA_Init();
+    if (s_use_ppa) {
+        if (calibrate_flip(&s_flip_rgb_swap)) {
+            ESP_LOGI(TAG, "PPA flip calibrated: rgb_swap=%s",
+                     s_flip_rgb_swap ? "true" : "false");
+        } else {
+            ESP_LOGW(TAG, "PPA flip does not match the CPU reference either way; "
+                          "falling back to the CPU rotation");
+            s_use_ppa = false;
+        }
+    }
 
     bsp_display_set_backlight_brightness(100);
     ESP_LOGI(TAG, "Screen initialized: logical %dx%d -> physical %dx%d (%s rotation)",
@@ -77,6 +182,10 @@ BS_Surface* BS_SetVideoMode(Uint32 width, Uint32 height, Uint32 depth, Uint32 fl
 #define FLIP_TILE 32
 
 static void BS_FlipCPU(const BS_Surface* screen) {
+    // A rotation cannot walk both buffers contiguously, so work in tiles: one
+    // TILE x TILE block at a time keeps the strided side inside the cache
+    // instead of taking a miss on every one of the 384000 pixels, which is
+    // what the original row-major version did.
     const Uint32* px = screen->pixels;
     for (int ly0 = 0; ly0 < LOG_H; ly0 += FLIP_TILE) {
         int ly_end = ly0 + FLIP_TILE; if (ly_end > LOG_H) ly_end = LOG_H;
@@ -88,9 +197,15 @@ static void BS_FlipCPU(const BS_Surface* screen) {
                 for (int lx = lx0; lx < lx_end; lx++) {
                     Uint32 p = srow[lx];
                     uint8_t* d = dcol + (size_t)lx * PHYS_STRIDE;
+#if PANEL_BYTES_BGR
                     d[0] = (uint8_t)((p >> 16) & 0xff);  // B
                     d[1] = (uint8_t)((p >>  8) & 0xff);  // G
                     d[2] = (uint8_t)((p      ) & 0xff);  // R
+#else
+                    d[0] = (uint8_t)((p      ) & 0xff);  // R
+                    d[1] = (uint8_t)((p >>  8) & 0xff);  // G
+                    d[2] = (uint8_t)((p >> 16) & 0xff);  // B
+#endif
                 }
             }
         }
@@ -112,7 +227,8 @@ int BS_Flip(BS_Surface* screen) {
         // The CPU has just drawn the frame, so push it out of cache before the
         // PPA's DMA goes looking for it.
         PAL_PPA_FlushSurface(screen);
-        if (PAL_PPA_FlipToPanel(screen, JOB_FLIP, phys_fb, PHYS_FB_SIZE, PHYS_W, PHYS_H)) {
+        if (PAL_PPA_FlipToPanel(screen, JOB_FLIP, phys_fb, PHYS_FB_SIZE,
+                                PHYS_W, PHYS_H, s_flip_rgb_swap)) {
             PAL_PPA_WaitJob(JOB_FLIP);
             rotated = true;
         }

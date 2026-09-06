@@ -21,32 +21,67 @@ char* gethomepath() {
     return (char*)TANMATSU_WORK_DIR;
 }
 
-// configGetPath: build path in working dir
+static bool file_exists(const char* path) {
+    FILE* fh = fastopen(path, "r");
+    if (!fh) return false;
+    fastclose(fh);
+    return true;
+}
+
+// configGetPath: resolve a game asset to a path in the working dir.
+//
+// With an addon selected, look in the addon's directory first, then fall back
+// to the base game data, then to the assets shipped with the app. The base
+// fallback is what lets an addon use the shared artwork it does not override:
+// livelost.jpg, gameover.jpg and friends only exist in basedata.bmf, so
+// without it dying inside any addon looked for a file that is never there and
+// took the fatal-error path.
 char* configGetPath(const char* fname) {
-    FILE* filetest;
+    if (strlen(fname) == 0) {
+        if (strlen(currentAddonName) > 0) {
+            snprintf(file, sizeof(file), "%s/V%s/ADDON/%s/%s",
+                     TANMATSU_WORK_DIR, VERSION, currentAddonName, fname);
+        } else {
+            snprintf(file, sizeof(file), "%s/V%s/%s",
+                     TANMATSU_WORK_DIR, VERSION, fname);
+        }
+        return file;
+    }
+
+    char candidate[PATH_MAX];
+
     if (strlen(currentAddonName) > 0) {
         snprintf(file, sizeof(file), "%s/V%s/ADDON/%s/%s",
                  TANMATSU_WORK_DIR, VERSION, currentAddonName, fname);
+        if (file_exists(file)) {
+            return file;
+        }
+        // Fall back to the base game data.
+        snprintf(candidate, sizeof(candidate), "%s/V%s/%s",
+                 TANMATSU_WORK_DIR, VERSION, fname);
     } else {
         snprintf(file, sizeof(file), "%s/V%s/%s",
                  TANMATSU_WORK_DIR, VERSION, fname);
-    }
-    if (strlen(fname) == 0) return file;
-
-    // Check if file exists; if not, check in RESPATH (app assets)
-    filetest = fastopen(file, "r");
-    if (filetest) {
-        fastclose(filetest);
-    } else {
-        char respath_file[PATH_MAX];
-        snprintf(respath_file, sizeof(respath_file), "%s%s", RESPATH, fname);
-        filetest = fastopen(respath_file, "r");
-        if (filetest) {
-            fastclose(filetest);
-            strncpy(file, respath_file, sizeof(file) - 1);
-            file[sizeof(file) - 1] = '\0';
+        if (file_exists(file)) {
+            return file;
         }
+        snprintf(candidate, sizeof(candidate), "%s%s", RESPATH, fname);
     }
+
+    if (file_exists(candidate)) {
+        strncpy(file, candidate, sizeof(file) - 1);
+        file[sizeof(file) - 1] = '\0';
+        return file;
+    }
+
+    // Last resort: the assets shipped with the app.
+    snprintf(candidate, sizeof(candidate), "%s%s", RESPATH, fname);
+    if (file_exists(candidate)) {
+        strncpy(file, candidate, sizeof(file) - 1);
+        file[sizeof(file) - 1] = '\0';
+    }
+    // Nothing matched; `file` still holds the primary location, which is the
+    // most useful thing to name in the caller's error message.
     return file;
 }
 

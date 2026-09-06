@@ -125,26 +125,20 @@ bool menuDisplay() {
 			{
 				case SDL_KEYUP:
 					CHECK_BOSSKEY ;
-					if ((event.key.keysym.sym == SDLK_UP) ||(event.key.keysym.sym == SDLK_w)) {
+					/* Only W/S here. The arrows and Return also arrive as
+					   navigation events and are handled above as joystick
+					   releases; acting on both moved two entries per press. */
+					if (event.key.keysym.sym == SDLK_w) {
 						soundPlayFX(FX_MENU);
 						sel--;
 						if(!sel) {
 							sel = max;
 						}
-					} else if ((event.key.keysym.sym == SDLK_DOWN) ||(event.key.keysym.sym == SDLK_s)) {
+					} else if (event.key.keysym.sym == SDLK_s) {
 						soundPlayFX(FX_MENU);
 						sel++;
 						if(sel > max) {
 							sel = 1;
-						}
-					} else if (event.key.keysym.sym == SDLK_RETURN) {
-						soundPlayFX(FX_MENU);
-						if(strcmp(menutexte[sel-1],"Play")==0) {
-							menuAddonDisplay();
-						} else {
-							if(guiYesNoDialog("Do you really want to", "quit BlinkenSisters?", true)) {
-								menuRunning = false;
-							}
 						}
 					}
 					break;
@@ -354,33 +348,20 @@ bool menuOnlineDisplay() {
 			{
 				case SDL_KEYUP:
 					CHECK_BOSSKEY ;
-					if ((event.key.keysym.sym == SDLK_UP) || (event.key.keysym.sym == SDLK_w)) {
+					/* Only W/S here. The arrows and Return also arrive as
+					   navigation events and are handled above as joystick
+					   releases; acting on both moved two entries per press. */
+					if (event.key.keysym.sym == SDLK_w) {
 						soundPlayFX(FX_MENU);
 						sel--;
 						if(!sel) {
 							sel = max;
 						}
-					} else if ((event.key.keysym.sym == SDLK_DOWN) || (event.key.keysym.sym == SDLK_s)) {
+					} else if (event.key.keysym.sym == SDLK_s) {
 						soundPlayFX(FX_MENU);
 						sel++;
 						if(sel > max) {
 							sel = 1;
-						}
-					} else if (event.key.keysym.sym == SDLK_RETURN) {
-						soundPlayFX(FX_MENU);
-						if(sel != max) {
-							if(guiYesNoDialog("Install AddOn?", files[sel].name, true)) {
-								soundPlayFX(FX_MENU);
-								sprintf(localfile, "%s%s", ADDON_LOCAL_PATH, files[sel].fname);
-								if(!copyFile(localfile, configGetPath("temp_web.bmf"))) {
-									displaymessage(displaymessage_WARNING,"Cannot read local addon file!\n\n(continuing in 5 seconds)",5000);
-								} else if(!extractMetaBMF(configGetPath("temp_web.bmf"))) {
-									DIE(ERROR_BMFPARSE, configGetPath("temp_web.bmf"));
-								}
-								soundPlayFX(FX_MENU);
-							}
-						} else {
-							menuRunning = false;
 						}
 					}
 					break;
@@ -550,29 +531,20 @@ bool menuAddonDisplay() {
 			{
 				case SDL_KEYUP:
 					CHECK_BOSSKEY ;
-					if ((event.key.keysym.sym == SDLK_UP) || (event.key.keysym.sym == SDLK_w)) {
+					/* Only W/S here. The arrows and Return also arrive as
+					   navigation events and are handled above as joystick
+					   releases; acting on both moved two entries per press. */
+					if (event.key.keysym.sym == SDLK_w) {
 						soundPlayFX(FX_MENU);
 						sel--;
 						if(!sel) {
 							sel = max;
 						}
-					} else if ((event.key.keysym.sym == SDLK_DOWN) ||(event.key.keysym.sym == SDLK_s)) {
+					} else if (event.key.keysym.sym == SDLK_s) {
 						soundPlayFX(FX_MENU);
 						sel++;
 						if(sel > max) {
 							sel = 1;
-						}
-					} else if (event.key.keysym.sym == SDLK_RETURN) {
-						soundPlayFX(FX_MENU);
-						if(sel != max) {
-							soundStopMusic();
-							configSetAddOn(files[sel].fname);
-							initGame();
-							playGame();
-							configResetAddOn();
-							soundStartMusic("ADDON/LostPixels/menuMusic.mp3");
-						} else {
-							menuRunning = false;
 						}
 					}
 					break;

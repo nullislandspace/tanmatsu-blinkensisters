@@ -79,9 +79,14 @@ bool PAL_PPA_Blit(const BS_Surface* src, uint32_t job_id,
 // per-pixel CPU rotate, whose inner loop strode the destination by a full
 // row (1440 bytes) and so missed cache on essentially every one of the
 // 384000 pixels. `phys` must be cache-line aligned, as must `phys_size`.
+// `rgb_swap` asks the PPA to transpose the input's red and blue. Its exact
+// meaning is not something the driver documents unambiguously ("ARGB becomes
+// BGRA" reads as a byte reversal, "RGB becomes BGR" as a channel swap), so
+// callers determine the right value once at start-up by running both against
+// the CPU reference -- see BS_InitScreen.
 bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
                          void* phys, size_t phys_size,
-                         int phys_w, int phys_h);
+                         int phys_w, int phys_h, bool rgb_swap);
 
 // --- Completion --------------------------------------------------------
 

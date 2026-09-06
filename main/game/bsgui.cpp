@@ -160,13 +160,20 @@ bool guiYesNoDialog(const char* line1, const char* line2, bool defaultval) {
 			{
 				case SDL_KEYUP:
 					CHECK_BOSSKEY ;
-                    if ((event.key.keysym.sym == SDLK_UP) ||
-                        (event.key.keysym.sym == SDLK_DOWN) ||
-                        (event.key.keysym.sym == SDLK_LEFT) ||
-                        (event.key.keysym.sym == SDLK_RIGHT)) {
-                            yesno = !yesno;
-                            soundPlayFX(FX_MENU);
-					} else if (event.key.keysym.sym == SDLK_RETURN) {
+					/* The arrows and Return also arrive as navigation events
+					   and are handled below as joystick releases. Acting on
+					   both toggled the answer twice per press, so it never
+					   appeared to move. W/S/Y/N have no such duplicate. */
+					if ((event.key.keysym.sym == SDLK_w) ||
+					    (event.key.keysym.sym == SDLK_s)) {
+						yesno = !yesno;
+						soundPlayFX(FX_MENU);
+					} else if (event.key.keysym.sym == SDLK_y) {
+						yesno = true;
+						soundPlayFX(FX_MENU);
+						dialogRunning = false;
+					} else if (event.key.keysym.sym == SDLK_n) {
+						yesno = false;
 						soundPlayFX(FX_MENU);
 						dialogRunning = false;
 					}

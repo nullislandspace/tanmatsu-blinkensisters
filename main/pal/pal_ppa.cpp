@@ -31,14 +31,6 @@ static const char* TAG = "pal_ppa";
 // PSRAM L2 cache line; PPA output buffers must be aligned to it.
 #define PPA_CACHE_LINE       128
 
-// Whether the flip asks the PPA to transpose red and blue on the way in.
-// Verified on the panel: false is correct. The driver documents rgb_swap as
-// turning "ARGB into BGRA", which reads as an R/B swap but is in fact a full
-// byte reversal, and that already lines a BS pixel (byte order R,G,B,A) up
-// with the RGB888 byte order the panel wants. Turning it on visibly
-// exchanged reds and blues.
-#define PPA_FLIP_RGB_SWAP    false
-
 static ppa_client_handle_t s_srm_client  = NULL;
 static ppa_client_handle_t s_fill_client = NULL;
 static QueueHandle_t       s_submit_q    = NULL;  // game -> pump
@@ -305,7 +297,7 @@ bool PAL_PPA_Blit(const BS_Surface* src, uint32_t job_id,
 
 bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
                          void* phys, size_t phys_size,
-                         int phys_w, int phys_h) {
+                         int phys_w, int phys_h, bool rgb_swap) {
     if (!s_inited || !screen || !screen->pixels || !phys) {
         return false;
     }
@@ -339,9 +331,9 @@ bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
     job.cfg.srm.rotation_angle     = PPA_SRM_ROTATION_ANGLE_270;
     job.cfg.srm.scale_x            = 1.0f;
     job.cfg.srm.scale_y            = 1.0f;
-    // See PPA_FLIP_RGB_SWAP. The RGB888 the PPA writes is byte order B,G,R,
-    // which is exactly what the panel wants.
-    job.cfg.srm.rgb_swap           = PPA_FLIP_RGB_SWAP;
+    // The RGB888 the PPA writes is byte order B,G,R, which is what the panel
+    // wants; `rgb_swap` decides how the input's channels reach it.
+    job.cfg.srm.rgb_swap           = rgb_swap;
     job.cfg.srm.byte_swap          = false;
     job.cfg.srm.alpha_update_mode  = PPA_ALPHA_NO_CHANGE;
     job.cfg.srm.mode               = PPA_TRANS_MODE_NON_BLOCKING;
