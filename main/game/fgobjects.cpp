@@ -848,10 +848,10 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
 		if (SDL_LockSurface(obj) < 0) 
 			return false;
 	
-	Uint32 pitch_sprite = playersprite->pitch / 4;
-	Uint32 pitch_obj = obj->pitch / 4;
+	Uint32 pitch_sprite = playersprite->w;
+	Uint32 pitch_obj = obj->w;
 	Sint32 i, j, k, l;
-	Uint32 pixel;
+	BS_Pixel pixel;
 	
 	Sint32 playerscreenx, playerscreeny;
 	Sint32 objx, objy;
@@ -863,9 +863,9 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
 	// Check for colission
 	for(i=0; i < TILESIZE; i++) {
 		for(j=0; j < TILESIZE; j++) {
-			pixel = ((Uint32 *)playersprite->pixels)[(j + playersprite_srcoffset) * pitch_sprite + i];
+			pixel = playersprite->pixels[(j + playersprite_srcoffset) * pitch_sprite + i];
 			
-			if(pixel != 0x00000000) {
+			if(pixel != BS_TRANSPARENT) {
 				playerscreenx = (Uint32)spritex + i;
 				playerscreeny = (Uint32)spritey + j;
 				// Check, if this point CAN touch the playersprite...
@@ -877,14 +877,15 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
 					objx = playerscreenx - fgObjs[objid]->x;
 					objy = playerscreeny - fgObjs[objid]->y;
 					
-					pixel = ((Uint32 *)obj->pixels)[objy * pitch_obj + objx];
-					if((pixel & 0xff000000) > 0x80000000) {
+					pixel = obj->pixels[objy * pitch_obj + objx];
+					/* Was "alpha > 0x80"; transparency is binary in RGB565. */
+					if(pixel != BS_TRANSPARENT) {
 						overlap = true;
 						// Search to left
 						if(i < TILESIZE/2) {
 						     minx = TILESIZE;
 						     for(k = i; k >= 0; k--) {
-                                 if(((Uint32 *)playersprite->pixels)[(j + playersprite_srcoffset) * pitch_sprite + k] != 0x00000000) {
+                                 if(playersprite->pixels[(j + playersprite_srcoffset) * pitch_sprite + k] != BS_TRANSPARENT) {
                                     minx = k;
                                 }
                             }
@@ -898,7 +899,7 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
 						if(i >= TILESIZE/2) {
 						     maxx = 0;
 						     for(k = i; k < TILESIZE; k++) {
-                                 if(((Uint32 *)playersprite->pixels)[(j + playersprite_srcoffset) * pitch_sprite + k] != 0x00000000) {
+                                 if(playersprite->pixels[(j + playersprite_srcoffset) * pitch_sprite + k] != BS_TRANSPARENT) {
                                     maxx = k;
                                 }
                             }
@@ -912,7 +913,7 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
 						if(j < TILESIZE/2) {
 						     miny = TILESIZE;
 						     for(l = j; l >= 0; l--) {
-                                 if(((Uint32 *)playersprite->pixels)[(l + playersprite_srcoffset) * pitch_sprite + i] != 0x00000000) {
+                                 if(playersprite->pixels[(l + playersprite_srcoffset) * pitch_sprite + i] != BS_TRANSPARENT) {
                                     miny = l;
                                 }
                             }
@@ -926,7 +927,7 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
 						if(j >= TILESIZE/2) {
 						     maxy = 0;
 						     for(l = j; l < TILESIZE; l++) {
-                                 if(((Uint32 *)playersprite->pixels)[(l + playersprite_srcoffset) * pitch_sprite + i] != 0x00000000) {
+                                 if(playersprite->pixels[(l + playersprite_srcoffset) * pitch_sprite + i] != BS_TRANSPARENT) {
                                     maxy = l;
                                 }
                             }
@@ -937,7 +938,7 @@ bool checkPlayerFGTrueCollission(const Uint32 objid) {
                         }
 					}
 				}
-				//((Uint32 *)gScreen->pixels)[(j + y) * pitch_bg + i + x] = pixel;
+
 			}
 			
 		}

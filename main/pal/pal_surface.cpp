@@ -19,12 +19,12 @@ BS_Surface* BS_CreateSurface(Sint32 w, Sint32 h) {
     // align it to one. The PPA reads and writes surfaces by DMA, and both the
     // driver's buffer requirements and esp_cache_msync() need that alignment;
     // without it a surface silently cannot be handed to the hardware.
-    size_t pixels_size = (size_t)w * h * sizeof(Uint32);
+    size_t pixels_size = (size_t)w * h * sizeof(BS_Pixel);
     size_t alloc_size  = (pixels_size + BS_SURFACE_ALIGN - 1) & ~(size_t)(BS_SURFACE_ALIGN - 1);
-    s->pixels = (Uint32*)heap_caps_aligned_alloc(BS_SURFACE_ALIGN, alloc_size, MALLOC_CAP_SPIRAM);
+    s->pixels = (BS_Pixel*)heap_caps_aligned_alloc(BS_SURFACE_ALIGN, alloc_size, MALLOC_CAP_SPIRAM);
     if (!s->pixels) {
         // Fallback to internal RAM
-        s->pixels = (Uint32*)heap_caps_aligned_alloc(BS_SURFACE_ALIGN, alloc_size, MALLOC_CAP_DEFAULT);
+        s->pixels = (BS_Pixel*)heap_caps_aligned_alloc(BS_SURFACE_ALIGN, alloc_size, MALLOC_CAP_DEFAULT);
         if (!s->pixels) {
             ESP_LOGE(TAG, "Failed to alloc %d bytes for %dx%d surface", (int)alloc_size, w, h);
             heap_caps_free(s);
@@ -33,12 +33,12 @@ BS_Surface* BS_CreateSurface(Sint32 w, Sint32 h) {
     }
     s->w = w;
     s->h = h;
-    s->pitch = w * 4;
+    s->pitch = w * 2;
     s->colorkey = 0;
     s->colorkey_enabled = false;
     s->format_flags = 0;
     s->ppa_src_ready = false;
-    s->_format_data.BytesPerPixel = 4;
+    s->_format_data.BytesPerPixel = 2;
     s->format = &s->_format_data;
     memset(s->pixels, 0, pixels_size);
     return s;
@@ -79,7 +79,7 @@ BS_Surface* BS_DupSurface(const BS_Surface* src) {
     if (!src) return NULL;
     BS_Surface* dst = BS_CreateSurface(src->w, src->h);
     if (!dst) return NULL;
-    memcpy(dst->pixels, src->pixels, (size_t)src->w * src->h * sizeof(Uint32));
+    memcpy(dst->pixels, src->pixels, (size_t)src->w * src->h * sizeof(BS_Pixel));
     dst->colorkey = src->colorkey;
     dst->colorkey_enabled = src->colorkey_enabled;
     return dst;
@@ -113,7 +113,7 @@ int BS_BlitSurface(BS_Surface* src, const SDL_Rect* srcrect,
     if (copy_w <= 0 || copy_h <= 0) return 0;
 
     bool use_colorkey = src->colorkey_enabled;
-    Uint32 ck = src->colorkey;
+    BS_Pixel ck = src->colorkey;
 
     // Whole-surface opaque copy from a finalized source: let the PPA do it.
     // This is the per-frame background blit, the single biggest CPU cost in a
@@ -128,19 +128,19 @@ int BS_BlitSurface(BS_Surface* src, const SDL_Rect* srcrect,
     }
 
     for (int row = 0; row < copy_h; row++) {
-        const Uint32* srow = src->pixels + (sy + row) * src->w + sx;
-        Uint32*       drow = dst->pixels + (dy + row) * dst->w + dx;
+        const BS_Pixel* srow = src->pixels + (size_t)(sy + row) * src->w + sx;
+        BS_Pixel*       drow = dst->pixels + (size_t)(dy + row) * dst->w + dx;
         if (use_colorkey) {
             for (int col = 0; col < copy_w; col++) {
-                Uint32 p = srow[col];
-                if ((p & 0x00FFFFFF) != (ck & 0x00FFFFFF)) {
+                BS_Pixel p = srow[col];
+                if (p != ck && p != BS_TRANSPARENT) {
                     drow[col] = p;
                 }
             }
         } else {
             for (int col = 0; col < copy_w; col++) {
-                Uint32 p = srow[col];
-                if (p & 0xFF000000) {  // skip fully transparent (alpha=0) pixels
+                BS_Pixel p = srow[col];
+                if (p != BS_TRANSPARENT) {
                     drow[col] = p;
                 }
             }
@@ -170,10 +170,11 @@ int BS_FillRect(BS_Surface* dst, const SDL_Rect* rect, Uint32 color) {
         return 0;
     }
 
+    BS_Pixel packed = BS_PackOpaque(color);
     for (int row = 0; row < h; row++) {
-        Uint32* drow = dst->pixels + (y + row) * dst->w + x;
+        BS_Pixel* drow = dst->pixels + (size_t)(y + row) * dst->w + x;
         for (int col = 0; col < w; col++) {
-            drow[col] = color;
+            drow[col] = packed;
         }
     }
     return 0;
@@ -183,7 +184,9 @@ int BS_SetColorKey(BS_Surface* s, Uint32 flag, Uint32 key) {
     if (!s) return -1;
     if (flag & SDL_SRCCOLORKEY) {
         s->colorkey_enabled = true;
-        s->colorkey = key;
+        // Nudged the same way stored pixels are, so a key that happens to be
+        // the reserved magenta still matches the art.
+        s->colorkey = BS_PackOpaque(key);
     } else {
         s->colorkey_enabled = false;
     }

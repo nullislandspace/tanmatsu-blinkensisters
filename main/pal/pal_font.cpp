@@ -97,7 +97,7 @@ void renderFontHandlerText(Sint32 x, Sint32 y, const char* text,
     uint8_t r = fontcolor.r;
     uint8_t g = fontcolor.g;
     uint8_t b = fontcolor.b;
-    Uint32 pixel_color = 0xff000000 | ((Uint32)b << 16) | ((Uint32)g << 8) | (Uint32)r;
+    BS_Pixel pixel_color = BS_PackOpaque(0xff000000u | ((Uint32)b << 16) | ((Uint32)g << 8) | (Uint32)r);
 
     // Count lines for vcentering
     int num_lines = count_lines(text);

@@ -78,7 +78,7 @@ void applyOutputFilter()
         return;
     }
     
-    	Uint32 pitch = gScreen->pitch / 4;	
+    	Uint32 pitch = gScreen->w;	
 	Uint32 i, j;
 	Uint32 pixel;
 	Uint32 r,g,b;
@@ -87,7 +87,7 @@ void applyOutputFilter()
     	// Whole-screen pixel manipulations
     	for(i=0; i < (unsigned int)SCR_WIDTH; i++) {
     		for(j=0; j < (unsigned int)SCR_HEIGHT; j++) {
-    			pixel = ((Uint32 *)gScreen->pixels)[j * pitch + i];
+    			pixel = BS_Unpack(gScreen->pixels[j * pitch + i]);
     			
   				r = pixel & 0xff;
 	            g = (pixel /  256) & 0xff;
@@ -118,7 +118,7 @@ void applyOutputFilter()
 				
                 pixel = r + g * 256  + b * 65536; 
                     			
-   				((Uint32 *)gScreen->pixels)[j * pitch + i] = pixel;
+   				gScreen->pixels[j * pitch + i] = BS_PackOpaque(pixel);
     			
     		}
     	}

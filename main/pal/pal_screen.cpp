@@ -15,16 +15,22 @@ static const char* TAG = "pal_screen";
 // size must both be aligned to it.
 #define PHYS_FB_ALIGN 128
 
-// Byte order the panel expects for each RGB888 pixel.
+// TEMPORARY MEASUREMENT SWITCH.
 //
-// 1 = B,G,R (what this port has always written, and what tanmatsu-tadoom
-// documents for its PAX_BUF_24_888RGB framebuffer on the same hardware);
-// 0 = R,G,B. This is THE knob for "every colour on screen has red and blue
-// exchanged" -- both the CPU rotation and the PPA one follow it, because
-// calibrate_flip() re-derives the PPA's setting from whatever this produces.
-#define PANEL_BYTES_BGR 1
+// Use the PPA rotation even when calibrate_flip() cannot reproduce the CPU
+// reference, so its cost can be read off the profiler. Colours (and possibly
+// the orientation) may be wrong while this is on -- that is the point: it
+// separates "how fast is the PPA at this" from "what exactly does it produce".
+// What appears on the panel is itself diagnostic: a correct-looking picture in
+// the wrong colours means only the channel order differs, while a scrambled
+// one means the rotation does.
+//
+// Set back to 0 once the answer is in.
+#define FORCE_PPA_ROTATE 1
 
-#define PHYS_FB_SIZE_RAW ((size_t)PHYS_W * PHYS_H * 3)
+// The panel runs in RGB565, so the physical framebuffer is 2 bytes per pixel
+// like everything else. See main.cpp, which requests that format.
+#define PHYS_FB_SIZE_RAW ((size_t)PHYS_W * PHYS_H * 2)
 #define PHYS_FB_SIZE     ((PHYS_FB_SIZE_RAW + PHYS_FB_ALIGN - 1) & ~(size_t)(PHYS_FB_ALIGN - 1))
 
 BS_Surface* gScreen = NULL;
@@ -42,22 +48,12 @@ static bool     s_flip_byte_swap = false;
 // has always done it: physical (col, row) = logical (row, log_h - 1 - col),
 // written as byte order B,G,R -- which is what this panel's RGB888 wants (the
 // same convention tanmatsu-tadoom documents for its PAX framebuffer).
-static void rotate_reference(const Uint32* px, int log_w, int log_h,
-                             uint8_t* out, int phys_w) {
-    const int stride = phys_w * 3;
+static void rotate_reference(const BS_Pixel* px, int log_w, int log_h,
+                             BS_Pixel* out, int phys_w) {
     for (int ly = 0; ly < log_h; ly++) {
         for (int lx = 0; lx < log_w; lx++) {
-            Uint32 p = px[(size_t)ly * log_w + lx];
-            uint8_t* d = out + (size_t)lx * stride + (size_t)(log_h - 1 - ly) * 3;
-#if PANEL_BYTES_BGR
-            d[0] = (uint8_t)((p >> 16) & 0xff);  // B
-            d[1] = (uint8_t)((p >>  8) & 0xff);  // G
-            d[2] = (uint8_t)((p      ) & 0xff);  // R
-#else
-            d[0] = (uint8_t)((p      ) & 0xff);  // R
-            d[1] = (uint8_t)((p >>  8) & 0xff);  // G
-            d[2] = (uint8_t)((p >> 16) & 0xff);  // B
-#endif
+            out[(size_t)lx * phys_w + (size_t)(log_h - 1 - ly)] =
+                px[(size_t)ly * log_w + lx];
         }
     }
 }
@@ -76,7 +72,7 @@ static void rotate_reference(const Uint32* px, int log_w, int log_h,
 // anything useful about the screen.
 static bool calibrate_flip(bool* out_rgb_swap, bool* out_byte_swap) {
     const size_t raw = PHYS_FB_SIZE_RAW;
-    uint8_t* want = (uint8_t*)heap_caps_malloc(raw, MALLOC_CAP_SPIRAM);
+    BS_Pixel* want = (BS_Pixel*)heap_caps_malloc(raw, MALLOC_CAP_SPIRAM);
     if (!want) {
         ESP_LOGW(TAG, "flip calib: no memory for the reference image");
         return false;
@@ -89,7 +85,7 @@ static bool calibrate_flip(bool* out_rgb_swap, bool* out_byte_swap) {
             uint8_t r = (uint8_t)(x & 0xff);
             uint8_t g = (uint8_t)((y * 3) & 0xff);
             uint8_t b = (uint8_t)((255 - (x & 0xff)) ^ (uint8_t)y);
-            gScreen->pixels[(size_t)y * LOG_W + x] = BS_MapRGBA(r, g, b, 0xff);
+            gScreen->pixels[(size_t)y * LOG_W + x] = BS_PackOpaque(BS_MapRGBA(r, g, b, 0xff));
         }
     }
     rotate_reference(gScreen->pixels, LOG_W, LOG_H, want, PHYS_W);
@@ -122,32 +118,24 @@ static bool calibrate_flip(bool* out_rgb_swap, bool* out_byte_swap) {
 
         // Say exactly how it differed, so a mismatch is diagnosable from the
         // log rather than by guessing at the documentation again.
+        const BS_Pixel* got = (const BS_Pixel*)phys_fb;
+        const size_t npix = raw / sizeof(BS_Pixel);
         size_t bad = 0;
-        while (bad < raw && phys_fb[bad] == want[bad]) bad++;
-        ESP_LOGW(TAG, "flip calib: rgb=%d byte=%d differs at byte %u/%u "
-                      "(pixel %u, channel %u)",
-                 (int)rgb, (int)byte, (unsigned)bad, (unsigned)raw,
-                 (unsigned)(bad / 3), (unsigned)(bad % 3));
-        ESP_LOGW(TAG, "  want %02x %02x %02x | %02x %02x %02x",
-                 want[0], want[1], want[2], want[3], want[4], want[5]);
-        ESP_LOGW(TAG, "  got  %02x %02x %02x | %02x %02x %02x",
-                 phys_fb[0], phys_fb[1], phys_fb[2],
-                 phys_fb[3], phys_fb[4], phys_fb[5]);
+        while (bad < npix && got[bad] == want[bad]) bad++;
+        ESP_LOGW(TAG, "flip calib: rgb=%d byte=%d differs at pixel %u/%u "
+                      "(want %04x, got %04x)",
+                 (int)rgb, (int)byte, (unsigned)bad, (unsigned)npix,
+                 bad < npix ? want[bad] : 0, bad < npix ? got[bad] : 0);
         // Where did the source's top-left pixel actually land? Anywhere but
         // the expected slot means the rotation differs, not the colour order.
-        Uint32 p0 = gScreen->pixels[0];
-        uint8_t r0 = (uint8_t)(p0 & 0xff);
-        uint8_t g0 = (uint8_t)((p0 >> 8) & 0xff);
-        uint8_t b0 = (uint8_t)((p0 >> 16) & 0xff);
-        for (size_t i = 0; i + 2 < raw; i += 3) {
-            if (phys_fb[i+1] == g0 &&
-                ((phys_fb[i] == b0 && phys_fb[i+2] == r0) ||
-                 (phys_fb[i] == r0 && phys_fb[i+2] == b0))) {
-                ESP_LOGW(TAG, "  source (0,0) rgb %02x%02x%02x landed at pixel %u "
+        BS_Pixel p0 = gScreen->pixels[0];
+        for (size_t i = 0; i < npix; i++) {
+            if (got[i] == p0) {
+                ESP_LOGW(TAG, "  source (0,0) %04x landed at pixel %u "
                               "(row %u col %u); the CPU path puts it at %u",
-                         r0, g0, b0, (unsigned)(i / 3),
-                         (unsigned)(i / 3 / (size_t)PHYS_W),
-                         (unsigned)(i / 3 % (size_t)PHYS_W),
+                         p0, (unsigned)i,
+                         (unsigned)(i / (size_t)PHYS_W),
+                         (unsigned)(i % (size_t)PHYS_W),
                          (unsigned)(PHYS_W - 1));
                 break;
             }
@@ -157,7 +145,7 @@ static bool calibrate_flip(bool* out_rgb_swap, bool* out_byte_swap) {
     heap_caps_free(want);
     // Leave the screen black whatever happened; the test pattern is not
     // something anyone wants to see flash up.
-    memset(gScreen->pixels, 0, (size_t)LOG_W * LOG_H * sizeof(Uint32));
+    memset(gScreen->pixels, 0, (size_t)LOG_W * LOG_H * sizeof(BS_Pixel));
     memset(phys_fb, 0, PHYS_FB_SIZE);
     esp_cache_msync(phys_fb, PHYS_FB_SIZE,
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
@@ -196,9 +184,18 @@ void BS_InitScreen(void) {
                      s_flip_rgb_swap ? "true" : "false",
                      s_flip_byte_swap ? "true" : "false");
         } else {
+#if FORCE_PPA_ROTATE
+            ESP_LOGW(TAG, "PPA flip matches no combination, but FORCE_PPA_ROTATE "
+                          "is on: using it anyway (rgb_swap=%s byte_swap=%s). "
+                          "Colours and/or orientation may be wrong -- this is a "
+                          "measurement, not a fix.",
+                     s_flip_rgb_swap ? "true" : "false",
+                     s_flip_byte_swap ? "true" : "false");
+#else
             ESP_LOGW(TAG, "PPA flip does not match the CPU reference either way; "
                           "falling back to the CPU rotation");
             s_use_ppa = false;
+#endif
         }
     }
 
@@ -219,7 +216,7 @@ BS_Surface* BS_SetVideoMode(Uint32 width, Uint32 height, Uint32 depth, Uint32 fl
 // CPU fallback: rotate logical (800x480 RGBA32) -> physical (480x800 BGR888).
 //
 // Physical pixel (px, py) is logical (lx = py, ly = 479 - px), so
-//   phys_fb[lx * PHYS_STRIDE + (LOG_H - 1 - ly) * 3] = pixel(lx, ly).
+//   phys_fb[lx * PHYS_W + (LOG_H - 1 - ly)] = pixel(lx, ly).
 //
 // A rotation cannot walk both buffers contiguously, so this works in tiles:
 // one TILE x TILE block at a time keeps the strided side inside the cache
@@ -232,26 +229,17 @@ static void BS_FlipCPU(const BS_Surface* screen) {
     // TILE x TILE block at a time keeps the strided side inside the cache
     // instead of taking a miss on every one of the 384000 pixels, which is
     // what the original row-major version did.
-    const Uint32* px = screen->pixels;
+    const BS_Pixel* px = screen->pixels;
+    BS_Pixel* out = (BS_Pixel*)phys_fb;
     for (int ly0 = 0; ly0 < LOG_H; ly0 += FLIP_TILE) {
         int ly_end = ly0 + FLIP_TILE; if (ly_end > LOG_H) ly_end = LOG_H;
         for (int lx0 = 0; lx0 < LOG_W; lx0 += FLIP_TILE) {
             int lx_end = lx0 + FLIP_TILE; if (lx_end > LOG_W) lx_end = LOG_W;
             for (int ly = ly0; ly < ly_end; ly++) {
-                const Uint32* srow = px + (size_t)ly * LOG_W;
-                uint8_t* dcol = phys_fb + (size_t)(LOG_H - 1 - ly) * 3;
+                const BS_Pixel* srow = px + (size_t)ly * LOG_W;
+                BS_Pixel* dcol = out + (size_t)(LOG_H - 1 - ly);
                 for (int lx = lx0; lx < lx_end; lx++) {
-                    Uint32 p = srow[lx];
-                    uint8_t* d = dcol + (size_t)lx * PHYS_STRIDE;
-#if PANEL_BYTES_BGR
-                    d[0] = (uint8_t)((p >> 16) & 0xff);  // B
-                    d[1] = (uint8_t)((p >>  8) & 0xff);  // G
-                    d[2] = (uint8_t)((p      ) & 0xff);  // R
-#else
-                    d[0] = (uint8_t)((p      ) & 0xff);  // R
-                    d[1] = (uint8_t)((p >>  8) & 0xff);  // G
-                    d[2] = (uint8_t)((p >> 16) & 0xff);  // B
-#endif
+                    dcol[(size_t)lx * PHYS_W] = srow[lx];
                 }
             }
         }

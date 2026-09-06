@@ -120,22 +120,24 @@ static BS_Surface* load_bmp(const char* path) {
     for (int row = 0; row < h; row++) {
         int src_row = top_down ? row : (h - 1 - row);
         const uint8_t* src = px + src_row * row_stride;
-        Uint32* dst = surf->pixels + row * w;
+        BS_Pixel* dst = surf->pixels + (size_t)row * w;
         if (bpp == 8) {
             for (int col = 0; col < w; col++) {
                 uint8_t idx = src[col];
                 uint8_t b = palette[idx*4+0], g = palette[idx*4+1], r = palette[idx*4+2];
-                dst[col] = BS_MapRGBA(r, g, b, 0xff);
+                dst[col] = BS_PackOpaque(BS_MapRGBA(r, g, b, 0xff));
             }
         } else if (bpp == 24) {
             for (int col = 0; col < w; col++) {
                 uint8_t b = src[col*3+0], g = src[col*3+1], r = src[col*3+2];
-                dst[col] = BS_MapRGBA(r, g, b, 0xff);
+                dst[col] = BS_PackOpaque(BS_MapRGBA(r, g, b, 0xff));
             }
         } else {
             for (int col = 0; col < w; col++) {
                 uint8_t b = src[col*4+0], g = src[col*4+1], r = src[col*4+2], a = src[col*4+3];
-                dst[col] = BS_MapRGBA(r, g, b, a);
+                // Alpha was only ever a binary skip test, so it becomes the
+                // reserved transparent colour.
+                dst[col] = a ? BS_PackOpaque(BS_MapRGBA(r, g, b, a)) : BS_TRANSPARENT;
             }
         }
     }
@@ -183,7 +185,7 @@ static BS_Surface* load_png(const char* path) {
     // lodepng RGBA8888: byte[0]=R, [1]=G, [2]=B, [3]=A
     for (unsigned i = 0; i < w * h; i++) {
         uint8_t r = image[i*4+0], g = image[i*4+1], b = image[i*4+2], a = image[i*4+3];
-        surf->pixels[i] = BS_MapRGBA(r, g, b, a);
+        surf->pixels[i] = a ? BS_PackOpaque(BS_MapRGBA(r, g, b, a)) : BS_TRANSPARENT;
     }
 
     lodepng_free(image);
@@ -321,11 +323,11 @@ static BS_Surface* load_jpeg(const char* path) {
     // BGR888 with padded row stride -> BS_Surface RGBA32
     for (uint32_t row = 0; row < h; row++) {
         const uint8_t* src = outbuf + (size_t)row * padded_w * 3;
-        Uint32* dst = surf->pixels + (size_t)row * w;
+        BS_Pixel* dst = surf->pixels + (size_t)row * w;
         for (uint32_t col = 0; col < w; col++) {
             uint8_t b = src[0], g = src[1], r = src[2];
             src += 3;
-            dst[col] = BS_MapRGBA(r, g, b, 0xff);
+            dst[col] = BS_PackOpaque(BS_MapRGBA(r, g, b, 0xff));
         }
     }
 
@@ -355,9 +357,9 @@ SDL_Surface* BS_ScaleSurface(const SDL_Surface* src, Sint32 dst_w, Sint32 dst_h)
         Sint32   y0   = (Sint32)(sy >> 16);
         Sint32   y1   = (y0 + 1 < src->h) ? y0 + 1 : y0;
         uint32_t fy   = sy & 0xFFFF;
-        const Uint32* row0 = src->pixels + (size_t)y0 * src->w;
-        const Uint32* row1 = src->pixels + (size_t)y1 * src->w;
-        Uint32* out = dst->pixels + (size_t)y * dst_w;
+        const BS_Pixel* row0 = src->pixels + (size_t)y0 * src->w;
+        const BS_Pixel* row1 = src->pixels + (size_t)y1 * src->w;
+        BS_Pixel* out = dst->pixels + (size_t)y * dst_w;
 
         for (Sint32 x = 0; x < dst_w; x++) {
             uint32_t sx = (uint32_t)x * stepx;
@@ -365,11 +367,25 @@ SDL_Surface* BS_ScaleSurface(const SDL_Surface* src, Sint32 dst_w, Sint32 dst_h)
             Sint32   x1 = (x0 + 1 < src->w) ? x0 + 1 : x0;
             uint32_t fx = sx & 0xFFFF;
 
-            Uint32 p00 = row0[x0], p01 = row0[x1];
-            Uint32 p10 = row1[x0], p11 = row1[x1];
+            BS_Pixel q00 = row0[x0], q01 = row0[x1];
+            BS_Pixel q10 = row1[x0], q11 = row1[x1];
 
-            uint32_t acc[4];
-            for (int c = 0; c < 4; c++) {
+            // Transparency stays binary: if the nearest source pixel is
+            // transparent so is the result, rather than blending the
+            // reserved colour into its neighbours.
+            if (q00 == BS_TRANSPARENT || q01 == BS_TRANSPARENT ||
+                q10 == BS_TRANSPARENT || q11 == BS_TRANSPARENT) {
+                out[x] = ((fx < 0x8000) && (fy < 0x8000)) ? q00 :
+                         ((fx >= 0x8000) && (fy < 0x8000)) ? q01 :
+                         ((fx < 0x8000)) ? q10 : q11;
+                continue;
+            }
+
+            Uint32 p00 = BS_Unpack(q00), p01 = BS_Unpack(q01);
+            Uint32 p10 = BS_Unpack(q10), p11 = BS_Unpack(q11);
+
+            uint32_t acc[3];
+            for (int c = 0; c < 3; c++) {
                 uint32_t shift = (uint32_t)c * 8;
                 uint32_t c00 = (p00 >> shift) & 0xFF;
                 uint32_t c01 = (p01 >> shift) & 0xFF;
@@ -379,7 +395,7 @@ SDL_Surface* BS_ScaleSurface(const SDL_Surface* src, Sint32 dst_w, Sint32 dst_h)
                 uint32_t bot = c10 + (((c11 - c10) * fx) >> 16);
                 acc[c] = top + (((bot - top) * fy) >> 16);
             }
-            out[x] = (acc[3] << 24) | (acc[2] << 16) | (acc[1] << 8) | acc[0];
+            out[x] = BS_PackOpaque(0xff000000u | (acc[2] << 16) | (acc[1] << 8) | acc[0]);
         }
     }
     return dst;

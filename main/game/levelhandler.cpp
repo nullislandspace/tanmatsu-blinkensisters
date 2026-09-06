@@ -284,7 +284,7 @@ void paintLevelPixels(Uint32 xoffs, Uint32 yoffs, Uint32 blinker) {
 	Uint32 livecolor = (255 - (Uint32)blinkbright) + (Uint32)blinkbright * 65536;
 	Sint32 xabs = 0;
 	Sint32 yabs = 0;
-	Uint32 pitch = gScreen->pitch / 4;
+	Uint32 pitch = gScreen->w;
 	static Sint32 respawncoloffs = 0;
 	static Sint32 goalcoloffs = 0;
 	static Sint32 lasttick = 0;
@@ -343,15 +343,15 @@ void paintLevelPixels(Uint32 xoffs, Uint32 yoffs, Uint32 blinker) {
         					if(y > 0 && y < SCR_HEIGHT) {
                                 if(tthis->x == lhandle.respawn_x && tthis->y == lhandle.respawn_y) {
                                     // Start Tile
-                                	bgcolor =  blend_mul(((Uint32*)gScreen->pixels)[x + y * pitch], 0x00707040);
+                                	bgcolor =  blend_mul(BS_Unpack(gScreen->pixels[x + y * pitch]), 0x00707040);
                                     tilecolor = (((TILESIZE - (abs(x - xabs - TILESIZE/2) + abs(y - yabs - TILESIZE/2))) + respawncoloffs) % TILESIZE) * 16;
                                 } else {
                                     // Respawn point
-        						    bgcolor =  blend_mul(((Uint32*)gScreen->pixels)[x + y * pitch], 0x00707070);
+        						    bgcolor =  blend_mul(BS_Unpack(gScreen->pixels[x + y * pitch]), 0x00707070);
         						    tilecolor = (((TILESIZE - (abs(x - xabs - TILESIZE/2) + abs(y - yabs - TILESIZE/2))) + respawncoloffs) % TILESIZE) * 8;
         						    tilecolor = tilecolor + (tilecolor << 8) + (tilecolor << 16)/*+ tilecolor << 8 + tilecolor << 16*/;
                                 }
-        						((Uint32*)gScreen->pixels)[x + y * pitch] =  blend_add(bgcolor, tilecolor);
+        						gScreen->pixels[x + y * pitch] =  BS_PackOpaque(blend_add(bgcolor, tilecolor));
         					}
         				}
         			}
@@ -363,12 +363,12 @@ void paintLevelPixels(Uint32 xoffs, Uint32 yoffs, Uint32 blinker) {
 							if(y > 0 && y < SCR_HEIGHT) {
 								if(allowedToExit) {
 									tilecolor = ((((TILESIZE - (abs(x - xabs - TILESIZE/2) + abs(y - yabs - TILESIZE/2))) + goalcoloffs) % TILESIZE) * 16) << 8;
-									color =  blend_mul(((Uint32*)gScreen->pixels)[x + y * pitch], 0x00704070);
+									color =  blend_mul(BS_Unpack(gScreen->pixels[x + y * pitch]), 0x00704070);
 								} else {
 									tilecolor = ((((TILESIZE - (abs(x - xabs - TILESIZE/2) + abs(y - yabs - TILESIZE/2))) + goalcoloffs) % TILESIZE) * 16) << 16;
-									color =  blend_mul(((Uint32*)gScreen->pixels)[x + y * pitch], 0x00407070);
+									color =  blend_mul(BS_Unpack(gScreen->pixels[x + y * pitch]), 0x00407070);
 								}
-								((Uint32*)gScreen->pixels)[x + y * pitch] =  blend_add(color, tilecolor);
+								gScreen->pixels[x + y * pitch] =  BS_PackOpaque(blend_add(color, tilecolor));
 							}
 						}
 					}

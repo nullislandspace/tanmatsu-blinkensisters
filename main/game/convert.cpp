@@ -15,14 +15,14 @@ SDL_Surface* convertToBSSurface(SDL_Surface* src) {
     
     SDL_Surface* dest = SDL_DisplayFormatAlpha(src);
     
-    Uint32 color;
-    Uint32 pitch = dest->pitch / 4;
+    /* Pure green is the layer's transparency key; with RGB565 there is no
+       alpha channel to clear, so it becomes the reserved transparent colour. */
+    const BS_Pixel green = BS_Pack(0x0000ff00u);
+    Uint32 pitch = dest->w;
 	for(Sint32 y = 0; y < dest->h; y++) { 
 		for(Sint32 x = 0; x < dest->w; x++) {
-			color = ((Uint32*)dest->pixels)[x + y * pitch];
-			
-			if((color & 0x00ffffff) == 0x0000ff00) {
-			     ((Uint32*)dest->pixels)[x + y * pitch] = 0x00000000;
+			if(dest->pixels[x + y * pitch] == green) {
+			     dest->pixels[x + y * pitch] = BS_TRANSPARENT;
 			}
 		}
 	}

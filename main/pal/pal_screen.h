@@ -8,13 +8,13 @@ extern "C" {
 // Physical dimensions (portrait orientation)
 #define PHYS_W 480
 #define PHYS_H 800
-#define PHYS_STRIDE (PHYS_W * 3)  // bytes per row in physical fb
+#define PHYS_STRIDE (PHYS_W * 2)  // bytes per row in physical fb (RGB565)
 
 // Logical dimensions (landscape, game space)
 #define LOG_W 800
 #define LOG_H 480
 
-extern BS_Surface *gScreen;    // Logical 800x480 RGBA32 framebuffer in PSRAM
+extern BS_Surface *gScreen;    // Logical 800x480 RGB565 framebuffer in PSRAM
 
 // Initialize screen (allocates gScreen and phys_fb)
 void BS_InitScreen(void);

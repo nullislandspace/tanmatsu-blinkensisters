@@ -129,9 +129,9 @@ void renderActionCapture(const Uint32 spriteoffsx, const Uint32 spriteoffsy) {
 				Uint32 multi = (fader << 16) + (fader << 8) + fader;
 				for(Uint32 x = 0; x < ACTIONCAPTURE_WIDTH; x++) {
 					for(Uint32 y = 0; y < ACTIONCAPTURE_HEIGHT; y++) {
-						Uint32 pixel = ((Uint32*)gActionCapSurface[i]->pixels)[x + y*gActionCapSurface[i]->pitch/4];
+						Uint32 pixel = BS_Unpack(gActionCapSurface[i]->pixels[x + y*gActionCapSurface[i]->w]);
 						pixel = blend_mul(pixel, multi);
-						((Uint32*)gActionCapSurface[i]->pixels)[x + y*gActionCapSurface[i]->pitch/4] = pixel;
+						gActionCapSurface[i]->pixels[x + y*gActionCapSurface[i]->w] = BS_PackOpaque(pixel);
 					}
 				}
 			}

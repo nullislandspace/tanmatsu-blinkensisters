@@ -108,7 +108,7 @@ Uint32 blend_alpha(const Uint32 source, const Uint32 target, const Uint32 factor
 void blend_darkenRect(const Sint32 x, const Sint32 y, const Sint32 width, const Sint32 height, const Uint32 factor)
 {
 	Sint32 i, j;
-	Sint32 pitch = gScreen->pitch / 4;
+	Sint32 pitch = gScreen->w;
 
     if ( SDL_MUSTLOCK(gScreen) )
     {
@@ -144,8 +144,8 @@ void blend_darkenRect(const Sint32 x, const Sint32 y, const Sint32 width, const 
 			// and no pixels get drawn!
 
 			for (j = 0; j < len; j++) {
-				//((Uint32*)gScreen->pixels)[ofs + j] = c;
-				((Uint32*)gScreen->pixels)[ofs + j] = blend_mul(((Uint32*)gScreen->pixels)[ofs + j], factor);
+				gScreen->pixels[ofs + j] =
+					BS_PackOpaque(blend_mul(BS_Unpack(gScreen->pixels[ofs + j]), factor));
 			}
 		}
 	}
@@ -156,7 +156,7 @@ void blend_darkenRect(const Sint32 x, const Sint32 y, const Sint32 width, const 
 void blend_brightenRect(const Sint32 x, const Sint32 y, const Sint32 width, const Sint32 height, const Uint32 factor)
 {
 	Sint32 i, j;
-	Sint32 pitch = gScreen->pitch / 4;
+	Sint32 pitch = gScreen->w;
 
     if ( SDL_MUSTLOCK(gScreen) )
     {
@@ -191,8 +191,8 @@ void blend_brightenRect(const Sint32 x, const Sint32 y, const Sint32 width, cons
 			// and no pixels get drawn!
 
 			for (j = 0; j < len; j++) {
-				//((Uint32*)gScreen->pixels)[ofs + j] = c;
-				((Uint32*)gScreen->pixels)[ofs + j] = blend_add(((Uint32*)gScreen->pixels)[ofs + j], factor);
+				gScreen->pixels[ofs + j] =
+					BS_PackOpaque(blend_add(BS_Unpack(gScreen->pixels[ofs + j]), factor));
 			}
 		}
 	}

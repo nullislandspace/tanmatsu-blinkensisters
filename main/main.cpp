@@ -117,7 +117,9 @@ extern "C" void app_main(void) {
     // BSP
     const bsp_configuration_t bsp_config = {
         .display = {
-            .requested_color_format = LCD_COLOR_PIXEL_FORMAT_RGB888,
+            // RGB565: matches the surface format, and halves both the
+            // rotation's output and the panel transfer.
+            .requested_color_format = LCD_COLOR_PIXEL_FORMAT_RGB565,
             .num_fbs = 1,
         },
     };

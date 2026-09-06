@@ -173,7 +173,7 @@ static void surface_msync(const BS_Surface* s, int flags, const char* what) {
     if (!s || !s->pixels) {
         return;
     }
-    size_t len = (size_t)s->w * (size_t)s->h * sizeof(Uint32);
+    size_t len = (size_t)s->w * (size_t)s->h * sizeof(BS_Pixel);
     len = (len + PPA_CACHE_LINE - 1) & ~(size_t)(PPA_CACHE_LINE - 1);
     if (((uintptr_t)s->pixels & (PPA_CACHE_LINE - 1)) != 0) {
         ESP_LOGW(TAG, "%s: surface %dx%d not cache-line aligned, skipping",
@@ -202,7 +202,7 @@ void PAL_PPA_InvalidateSurface(const BS_Surface* s) {
 // rounds every surface allocation up to that boundary, so reporting the
 // rounded size is both legal and accurate.
 static uint32_t surface_buffer_size(const BS_Surface* s) {
-    size_t len = (size_t)s->w * (size_t)s->h * sizeof(Uint32);
+    size_t len = (size_t)s->w * (size_t)s->h * sizeof(BS_Pixel);
     return (uint32_t)((len + PPA_CACHE_LINE - 1) & ~(size_t)(PPA_CACHE_LINE - 1));
 }
 
@@ -233,18 +233,16 @@ bool PAL_PPA_Fill(BS_Surface* dst, uint32_t job_id,
     job.cfg.fill.out.pic_h          = (uint32_t)dst->h;
     job.cfg.fill.out.block_offset_x = (uint32_t)x;
     job.cfg.fill.out.block_offset_y = (uint32_t)y;
-    job.cfg.fill.out.fill_cm        = PPA_FILL_COLOR_MODE_ARGB8888;
+    job.cfg.fill.out.fill_cm        = PPA_FILL_COLOR_MODE_RGB565;
     job.cfg.fill.fill_block_w       = (uint32_t)w;
     job.cfg.fill.fill_block_h       = (uint32_t)h;
-    // A BS pixel is 0xAABBGGRR, i.e. byte order R,G,B,A. The PPA lays an
-    // ARGB8888 fill down as byte order B,G,R,A, taking those bytes from .b,
-    // .g, .r, .a. So to land our channels in the right bytes, our red goes
-    // in .b and our blue goes in .r -- the fields are named for the PPA's
-    // layout, not ours.
-    job.cfg.fill.fill_argb_color.a  = (rgba >> 24) & 0xFF;  // A -> byte 3
-    job.cfg.fill.fill_argb_color.r  = (rgba >> 16) & 0xFF;  // our B -> byte 2
-    job.cfg.fill.fill_argb_color.g  = (rgba >>  8) & 0xFF;  // G -> byte 1
-    job.cfg.fill.fill_argb_color.b  = (rgba      ) & 0xFF;  // our R -> byte 0
+    // The fill colour is given in 8-bit channels and the hardware reduces it
+    // to RGB565 itself. `rgba` is the game's 0xAABBGGRR, so its red is the low
+    // byte.
+    job.cfg.fill.fill_argb_color.a  = (rgba >> 24) & 0xFF;
+    job.cfg.fill.fill_argb_color.r  = (rgba      ) & 0xFF;
+    job.cfg.fill.fill_argb_color.g  = (rgba >>  8) & 0xFF;
+    job.cfg.fill.fill_argb_color.b  = (rgba >> 16) & 0xFF;
     job.cfg.fill.mode               = PPA_TRANS_MODE_NON_BLOCKING;
     return ppa_enqueue(&job);
 }
@@ -278,14 +276,14 @@ bool PAL_PPA_Blit(const BS_Surface* src, uint32_t job_id,
     job.cfg.srm.in.block_h         = (uint32_t)h;
     job.cfg.srm.in.block_offset_x  = (uint32_t)sx;
     job.cfg.srm.in.block_offset_y  = (uint32_t)sy;
-    job.cfg.srm.in.srm_cm          = PPA_SRM_COLOR_MODE_ARGB8888;
+    job.cfg.srm.in.srm_cm          = PPA_SRM_COLOR_MODE_RGB565;
     job.cfg.srm.out.buffer         = dst->pixels;
     job.cfg.srm.out.buffer_size    = surface_buffer_size(dst);
     job.cfg.srm.out.pic_w          = (uint32_t)dst->w;
     job.cfg.srm.out.pic_h          = (uint32_t)dst->h;
     job.cfg.srm.out.block_offset_x = (uint32_t)dx;
     job.cfg.srm.out.block_offset_y = (uint32_t)dy;
-    job.cfg.srm.out.srm_cm         = PPA_SRM_COLOR_MODE_ARGB8888;
+    job.cfg.srm.out.srm_cm         = PPA_SRM_COLOR_MODE_RGB565;
     job.cfg.srm.rotation_angle     = PPA_SRM_ROTATION_ANGLE_0;
     job.cfg.srm.scale_x            = 1.0f;
     job.cfg.srm.scale_y            = 1.0f;
@@ -324,14 +322,14 @@ bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
     job.cfg.srm.in.block_h         = (uint32_t)screen->h;
     job.cfg.srm.in.block_offset_x  = 0;
     job.cfg.srm.in.block_offset_y  = 0;
-    job.cfg.srm.in.srm_cm          = PPA_SRM_COLOR_MODE_ARGB8888;
+    job.cfg.srm.in.srm_cm          = PPA_SRM_COLOR_MODE_RGB565;
     job.cfg.srm.out.buffer         = phys;
     job.cfg.srm.out.buffer_size    = (uint32_t)phys_size;
     job.cfg.srm.out.pic_w          = (uint32_t)phys_w;
     job.cfg.srm.out.pic_h          = (uint32_t)phys_h;
     job.cfg.srm.out.block_offset_x = 0;
     job.cfg.srm.out.block_offset_y = 0;
-    job.cfg.srm.out.srm_cm         = PPA_SRM_COLOR_MODE_RGB888;
+    job.cfg.srm.out.srm_cm         = PPA_SRM_COLOR_MODE_RGB565;
     job.cfg.srm.rotation_angle     = PPA_SRM_ROTATION_ANGLE_270;
     job.cfg.srm.scale_x            = 1.0f;
     job.cfg.srm.scale_y            = 1.0f;
