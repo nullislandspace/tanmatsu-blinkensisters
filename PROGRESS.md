@@ -3,7 +3,8 @@
 ## Status: Beta test candidate (2026-09-06)
 
 Plays end to end: menu, addon selection, all LostPixels levels, death and
-end screens, highscores, return to launcher. ~25 fps in gameplay.
+end screens, highscores, return to launcher. ~25 fps in gameplay. Published
+to the app repository as `at.cavac.blinkensisters` (`make apprepo`).
 
 ---
 
@@ -103,17 +104,43 @@ on press only and auto-repeats.
 
 ---
 
+## Tools
+
+Host-side, built with the local compiler (`make -C tools`), documented in
+`tools/README.md`:
+
+- `bmfextract` -- list, unpack, or `cat` one member of a `.bmf` archive
+- `bmfcompress` -- build one from a config file; taken unchanged from
+  upstream, so archives built here are byte-identical to the originals
+- `mkicons.sh` -- regenerate `metadata/icon*.png` from the player sprite
+
+Both C++ tools link `main/bmf/bmfconvert.*`, the same code the game uses, so
+there is one implementation of the format rather than two that can drift.
+
+Together they close the loop on shipped data without needing the upstream
+asset tree, since everything is already inside the archives: extract, fix,
+recompress, `make installbmf`. The upstream configs are preserved in
+`bmfsource/` (see its README), and `mz_template` is a ready-made skeleton for
+a new addon.
+
+Worth knowing: `bmfcompress` **skips a missing source file with a warning**
+rather than failing. An archive can quietly come out short, which is exactly
+what happened to `fx_menu.mp3` (below).
+
+---
+
 ## Known issues
 
-### Missing sprites (data, not code)
-`sister_movenone.bmp`, `sister_moveleftup.bmp`, `sister_moveleftdown.bmp`,
-`sister_moverightup.bmp`, `sister_moverightdown.bmp`, `sister_moveup.bmp`,
-`sister_movedown.bmp` are absent from `LostPixels.bmf`. The player is
-invisible when idle. Only `sister_moveleft` and `sister_moveright` exist.
+### Player sprites that were never drawn
+The engine asks for `sister_movenone`, `sister_moveup`, `sister_movedown` and
+the four diagonals, logs "Can't load FgObjGFX ... ignored" for each, and
+leaves the player invisible when idle.
 
-### No menu sound effect
-`fx_menu.mp3` exists in neither `basedata.bmf` nor any addon, so `FX_MENU`
-is silent. The other five predefined effects load and play.
+These are not missing data. `bmfextract` and a search of the upstream tree
+both say only `sister_moveleft.bmp` and `sister_moveright.bmp` have ever
+existed, in any archive or any addon. This is artwork to create, not data to
+recover. The cheap alternative is falling back to the last-facing sprite when
+idle, which needs no artwork at all.
 
 ### FORCE_PPA_ROTATE still on
 `main/pal/pal_screen.cpp` uses the PPA flip even if `calibrate_flip()` cannot
@@ -143,6 +170,15 @@ the device or it will keep using what it already unpacked.
 `metadata.json` sets `external_only`, so the launcher installs to SD card
 only -- the data does not fit in internal flash.
 
+`make apprepo` stages the whole release into the app repository: metadata,
+icons, the binary **renamed to application.bin** (the build calls it
+tanmatsu-blinkensisters.bin, metadata.json names the other), and the BMFs
+with their `addons/` subdirectory preserved, because that is what the asset
+`source_file` entries say. It then re-reads metadata.json and checks every
+declared asset actually landed -- with seven assets across two directories a
+silent `cp` omission would otherwise only surface as a failed install on
+someone else's badge.
+
 ---
 
 ## Fixed this round (for the record)
@@ -167,3 +203,13 @@ only -- the data does not fit in internal flash.
 - The HUD used fixed columns spaced for the original TTF; Hershey glyphs are
   much wider and the fields overlapped. Laid out from measured widths now.
 - Backdrops drawn for 4:3 are stretched to 800x480 on load.
+- Menu clicks were silent because nothing shipped `fx_menu.mp3`. The
+  LostPixels config asks for `SND/fx_collect_pixel.mp3 -> fx_menu.mp3`, but
+  that source is not in the addon tree (the sound lives in basedata), so
+  bmfcompress skipped the line and no archive ever contained the file. The
+  game now falls back to `fx_collect_pixel.mp3`, which is what the line
+  intended. Confirmed working on device.
+- The app icons are the player sprite (frame 0 of `sister_moveright.bmp`),
+  green keyed to white. 32 is 1:1 and 64 a nearest-neighbour 2x so both stay
+  crisp; only 16 is resampled, with a box filter -- point drops too many
+  pixels to stay legible and Lanczos rings.
