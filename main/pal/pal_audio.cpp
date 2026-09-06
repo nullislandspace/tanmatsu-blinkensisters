@@ -63,7 +63,12 @@ typedef struct {
     size_t   num_samples;   // total int16 values, i.e. frames * channels
     int      channels;
     int      sample_rate;
+    bool     shared;        // samples are owned by another entry; do not free
 } PCM_FX_Entry;
+
+// Indices into s_predef_fx, matching FX_SOUNDS in game/sound.h.
+#define FX_COLLECT_INDEX 0
+#define FX_MENU_INDEX    4
 
 static PCM_FX_Entry s_predef_fx[FX_MAX_PREDEF] = {};
 static PCM_FX_Entry s_lua_fx[MAX_FX_SAMPLES]   = {};
@@ -431,10 +436,10 @@ void PAL_AudioDeInit(void) {
     }
 
     for (int i = 0; i < FX_MAX_PREDEF; i++) {
-        if (s_predef_fx[i].samples) {
+        if (s_predef_fx[i].samples && !s_predef_fx[i].shared) {
             heap_caps_free(s_predef_fx[i].samples);
-            s_predef_fx[i].samples = NULL;
         }
+        s_predef_fx[i].samples = NULL;
     }
     PAL_DeInitSoundFXLua();
 }
@@ -487,6 +492,17 @@ void PAL_SoundLoadPredefFX(void) {
     for (int i = 0; i < FX_MAX_PREDEF; i++) {
         if (s_predef_fx[i].samples) continue;   // already loaded
         s_predef_fx[i] = decode_mp3_file(configGetPath(files[i]));
+    }
+
+    // fx_menu.mp3 is meant to be a copy of the pixel-collect sound -- the
+    // LostPixels addon config says exactly that ("SND/fx_collect_pixel.mp3 ->
+    // fx_menu.mp3") -- but that source file is missing from the addon tree, so
+    // bmfcompress skipped it and no shipped .bmf contains it. Use the sound it
+    // was supposed to be a copy of rather than leaving the menus silent.
+    if (!s_predef_fx[FX_MENU_INDEX].samples && s_predef_fx[FX_COLLECT_INDEX].samples) {
+        s_predef_fx[FX_MENU_INDEX] = s_predef_fx[FX_COLLECT_INDEX];
+        s_predef_fx[FX_MENU_INDEX].shared = true;
+        ESP_LOGI(TAG, "fx_menu.mp3 absent; using fx_collect_pixel.mp3 for menu clicks");
     }
 }
 

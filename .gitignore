@@ -21,3 +21,6 @@ CLAUDE.md
 components/badgeteam__badgelink/
 .vscode
 badgelink
+# Host tools (built locally, not part of the firmware)
+tools/bmfextract
+tools/bmfcompress

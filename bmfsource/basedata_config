@@ -1,0 +1,24 @@
+# Basedata BMF config for BlinkenSisters
+# Format: FILE=source|destination
+FILE=data/userdir/blinkenplayer.ico|blinkenplayer.ico
+FILE=data/userdir/decrunchingbg.png|decrunchingbg.png
+FILE=data/userdir/downloadbg.png|downloadbg.png
+FILE=data/userdir/fx_collect_pixel.mp3|fx_collect_pixel.mp3
+FILE=data/userdir/fx_killed.mp3|fx_killed.mp3
+FILE=data/userdir/fx_kill_monster.mp3|fx_kill_monster.mp3
+FILE=data/userdir/fx_level_finished.mp3|fx_level_finished.mp3
+FILE=data/userdir/fx_respawnpoint.mp3|fx_respawnpoint.mp3
+FILE=data/userdir/loading.jpg|loading.jpg
+FILE=data/userdir/lostpixels.ico|lostpixels.ico
+FILE=data/userdir/menubg.jpg|menubg.jpg
+FILE=data/userdir/menuonlinebg.jpg|menuonlinebg.jpg
+FILE=data/userdir/progressbar.png|progressbar.png
+FILE=data/global/lostpixels.png|lostpixels.png
+FILE=data/global/gameover.jpg|gameover.jpg
+FILE=data/global/gamewon.jpg|gamewon.jpg
+FILE=data/global/livelost.jpg|livelost.jpg
+FILE=data/global/highscorebg.jpg|highscorebg.jpg
+FILE=data/global/introbg.jpg|introbg.jpg
+FILE=data/global/Ghostmeat.ttf|Ghostmeat.ttf
+FILE=data/global/Georgia.ttf|Georgia.ttf
+FILE=data/global/fixme_logo.png|fixme_logo.png
