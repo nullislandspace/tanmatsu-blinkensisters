@@ -17,7 +17,7 @@ SDL_Surface *LOADING_Surface;
 
 void initShowLoading(const char *fname) {
 #ifndef DISABLE_BACKGROUND_ART
-	LOADING_Surface = BS_IMG_Load_DisplayFormat(configGetPath(fname), false);
+	LOADING_Surface = BS_IMG_Load_Fullscreen(configGetPath(fname), false);
 #else
 	(void)fname;
 #endif

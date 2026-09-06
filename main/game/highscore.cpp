@@ -26,7 +26,7 @@ void initHighscore() {
 	char fullfname[MAX_FNAME_LENGTH];
 	// load Background image
 #ifndef DISABLE_BACKGROUND_ART
-	HIGHSCORE_Surface = BS_IMG_Load_DisplayFormat(configGetPath("highscorebg.jpg"),DIE_ON_FILE_ERROR) ;
+	HIGHSCORE_Surface = BS_IMG_Load_Fullscreen(configGetPath("highscorebg.jpg"),DIE_ON_FILE_ERROR) ;
 #endif
 
 	// Pre-Init highscores in case we can't load them

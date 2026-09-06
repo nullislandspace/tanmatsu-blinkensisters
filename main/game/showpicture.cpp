@@ -25,7 +25,7 @@ void showPicture(const char *fname, Uint32 ticks) {
 	(void)fname;
 	drawrect(0, 0, SCR_WIDTH, SCR_HEIGHT, 0x000000);
 #else
-	SDL_Surface* temp2 = BS_IMG_Load_DisplayFormat(configGetPath(fname),DIE_ON_FILE_ERROR);
+	SDL_Surface* temp2 = BS_IMG_Load_Fullscreen(configGetPath(fname),DIE_ON_FILE_ERROR);
 	SDL_BlitSurface(temp2, NULL, gScreen, NULL);
 	SDL_FreeSurface(temp2);
 #endif

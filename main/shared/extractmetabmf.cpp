@@ -82,7 +82,7 @@ static void showExtractionStatus(const char* bmf_path, const char* writing_file)
 
 void initExtractMetaBMF() {
 #ifndef DISABLE_BACKGROUND_ART
-	decrunchingbg = BS_IMG_Load_DisplayFormat(configGetPath("decrunchingbg.png"), false);
+	decrunchingbg = BS_IMG_Load_Fullscreen(configGetPath("decrunchingbg.png"), false);
 #endif
 }
 

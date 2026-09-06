@@ -31,7 +31,7 @@ Uint32 bgoffs = 0;
 void initIntro()
 {
 #ifndef DISABLE_BACKGROUND_ART
-	SDL_Surface *temp = IMG_Load(configGetPath("intro.png"));
+	SDL_Surface *temp = BS_IMG_Load_Fullscreen(configGetPath("intro.png"), IGNORE_FILE_ERROR);
 	if(!temp) {
 		DIE(ERROR_IMAGE_READ, "intro.png");
 	}

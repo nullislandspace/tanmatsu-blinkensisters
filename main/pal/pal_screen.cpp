@@ -1,5 +1,6 @@
 #include "pal_screen.h"
 #include "pal_ppa.h"
+#include "shared/profile.h"
 extern "C" {
 #include "bsp/display.h"
 #include "esp_cache.h"
@@ -110,6 +111,37 @@ static bool calibrate_flip(bool* out_rgb_swap) {
         if (memcmp(got, want, raw) == 0) {
             *out_rgb_swap = swap;
             ok = true;
+            break;
+        }
+        // Say exactly how it differed, so a mismatch is diagnosable from the
+        // log rather than by guessing at the driver's documentation again.
+        size_t bad = 0;
+        while (bad < raw && got[bad] == want[bad]) bad++;
+        ESP_LOGW(TAG, "flip calib: rgb_swap=%d differs at byte %u of %u "
+                      "(pixel %u, channel %u)",
+                 (int)swap, (unsigned)bad, (unsigned)raw,
+                 (unsigned)(bad / 3), (unsigned)(bad % 3));
+        ESP_LOGW(TAG, "  want %02x %02x %02x | %02x %02x %02x | %02x %02x %02x",
+                 want[0], want[1], want[2], want[3], want[4], want[5],
+                 want[6], want[7], want[8]);
+        ESP_LOGW(TAG, "  got  %02x %02x %02x | %02x %02x %02x | %02x %02x %02x",
+                 got[0], got[1], got[2], got[3], got[4], got[5],
+                 got[6], got[7], got[8]);
+        // Where did the first source pixel actually land? If it is anywhere
+        // but byte 0, the rotation, not the colour order, is what differs.
+        uint8_t r0 = (uint8_t)(test->pixels[0] & 0xff);
+        uint8_t g0 = (uint8_t)((test->pixels[0] >> 8) & 0xff);
+        uint8_t b0 = (uint8_t)((test->pixels[0] >> 16) & 0xff);
+        for (size_t i = 0; i + 2 < raw; i += 3) {
+            if ((got[i] == b0 && got[i+1] == g0 && got[i+2] == r0) ||
+                (got[i] == r0 && got[i+1] == g0 && got[i+2] == b0)) {
+                ESP_LOGW(TAG, "  source pixel (0,0) rgb %02x%02x%02x landed at "
+                              "output pixel %u (row %u, col %u); expected %u",
+                         r0, g0, b0, (unsigned)(i / 3),
+                         (unsigned)(i / 3 / (size_t)pw), (unsigned)(i / 3 % (size_t)pw),
+                         (unsigned)(pw - 1));
+                break;
+            }
         }
     }
 
@@ -157,6 +189,7 @@ void BS_InitScreen(void) {
         }
     }
 
+    profSetRotationPath(s_use_ppa ? "PPA" : "CPU");
     bsp_display_set_backlight_brightness(100);
     ESP_LOGI(TAG, "Screen initialized: logical %dx%d -> physical %dx%d (%s rotation)",
              LOG_W, LOG_H, PHYS_W, PHYS_H, s_use_ppa ? "PPA" : "CPU");
@@ -222,6 +255,7 @@ int BS_Flip(BS_Surface* screen) {
         return -1;
     }
 
+    profZoneBegin(PROF_ROTATE);
     bool rotated = false;
     if (s_use_ppa) {
         // The CPU has just drawn the frame, so push it out of cache before the
@@ -236,8 +270,11 @@ int BS_Flip(BS_Surface* screen) {
     if (!rotated) {
         BS_FlipCPU(screen);
     }
+    profZoneEnd(PROF_ROTATE);
 
+    profZoneBegin(PROF_PANEL);
     esp_err_t ret = bsp_display_blit(0, 0, PHYS_W, PHYS_H, phys_fb);
+    profZoneEnd(PROF_PANEL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "bsp_display_blit failed: %d", ret);
         return -1;

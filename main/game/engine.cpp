@@ -33,6 +33,7 @@
 #include "errorhandler.h"
 #include "triggers.h"
 #include "outputfilter.h"
+#include "profile.h"
 #include "blending.h"
 #include "bl_lua_objbindings.h"
 #ifndef DISABLE_NETWORK
@@ -620,6 +621,7 @@ void renderEngine() {
 		}
 	}
 
+	profZoneBegin(PROF_PHYSICS);
 	while (gameRunning && gLastTick < tick) {
 		if(!hasScriptPhysics) {
 			engineFullPhysics();
@@ -627,6 +629,7 @@ void renderEngine() {
 			engineMinimalPhysics();
 		}
 	}
+	profZoneEnd(PROF_PHYSICS);
 		
 	
 
@@ -652,6 +655,7 @@ void renderEngine() {
 	
 	// Tell SDL to update the whole screen
 	BS_Flip(gScreen);
+	profFrameEnd();
 
 #ifdef ALLOW_ACTIONCAPTURE
 	renderActionCapture(spriterelx, spriterely);
@@ -687,6 +691,7 @@ void engineDoRender(COLOR3D mode3D)
 	}
 
 
+	profZoneBegin(PROF_BACKGROUND);
 	if(!lockedBG) {
 		if(!lhandle.hasBG2) {
 			drawBackground((fgXoffs / 2) + bgoffs, fgYoffs / 2);
@@ -697,6 +702,7 @@ void engineDoRender(COLOR3D mode3D)
 	} else {
 		drawBackground(fgXoffs + bgoffs, fgYoffs);
 	}
+	profZoneEnd(PROF_BACKGROUND);
 
 	// LUA Painting - STAGE 1
 	if(lhandle.luaCB[CB_RENDER_STAGE_1].cbName[0] != 0) {
@@ -704,14 +710,21 @@ void engineDoRender(COLOR3D mode3D)
     	if (SDL_MUSTLOCK(gScreen))
     		if (SDL_LockSurface(gScreen) < 0)
     			return;
+		profZoneBegin(PROF_LUA);
 		blLuaCall(lhandle.blOOLuaState, lhandle.luaCB[CB_RENDER_STAGE_1].cbName, "");
+		profZoneEnd(PROF_LUA);
     	// Unlock screen if needed
     	if (SDL_MUSTLOCK(gScreen))
     		SDL_UnlockSurface(gScreen);
 	}
 
+	profZoneBegin(PROF_FGOBJS);
 	paintFGObjs(fgXoffs, fgYoffs, false);
+	profZoneEnd(PROF_FGOBJS);
+
+	profZoneBegin(PROF_TILES);
 	paintLevelTiles(fgXoffs, fgYoffs);
+	profZoneEnd(PROF_TILES);
 
 	// LUA Painting - STAGE 2
 	if(lhandle.luaCB[CB_RENDER_STAGE_2].cbName[0] != 0) {
@@ -719,7 +732,9 @@ void engineDoRender(COLOR3D mode3D)
     	if (SDL_MUSTLOCK(gScreen))
     		if (SDL_LockSurface(gScreen) < 0)
     			return;
+		profZoneBegin(PROF_LUA);
 		blLuaCall(lhandle.blOOLuaState, lhandle.luaCB[CB_RENDER_STAGE_2].cbName, "");
+		profZoneEnd(PROF_LUA);
     	// Unlock screen if needed
     	if (SDL_MUSTLOCK(gScreen))
     		SDL_UnlockSurface(gScreen);
@@ -727,7 +742,9 @@ void engineDoRender(COLOR3D mode3D)
 
 	if(!hasScriptPhysics) {
 		// Paint pixels only if it's internal engine physics
+		profZoneBegin(PROF_PIXELS);
 		paintLevelPixels(fgXoffs, fgYoffs, (Uint32)blinkbright);
+		profZoneEnd(PROF_PIXELS);
 	}
 
 	// LUA Painting - STAGE 3
@@ -736,7 +753,9 @@ void engineDoRender(COLOR3D mode3D)
     	if (SDL_MUSTLOCK(gScreen))
     		if (SDL_LockSurface(gScreen) < 0)
     			return;
+		profZoneBegin(PROF_LUA);
 		blLuaCall(lhandle.blOOLuaState, lhandle.luaCB[CB_RENDER_STAGE_3].cbName, "");
+		profZoneEnd(PROF_LUA);
     	// Unlock screen if needed
     	if (SDL_MUSTLOCK(gScreen))
     		SDL_UnlockSurface(gScreen);
@@ -744,8 +763,10 @@ void engineDoRender(COLOR3D mode3D)
 	
 	if(!hasScriptPhysics) {
 		// Paint sprites only if it's internal engine physics
+		profZoneBegin(PROF_SPRITES);
 		showMonsterSprites(fgXoffs, fgYoffs);
 		showSprite(spriterelx, spriterely);
+		profZoneEnd(PROF_SPRITES);
 	}
 
 	// LUA Painting - STAGE 4
@@ -754,7 +775,9 @@ void engineDoRender(COLOR3D mode3D)
     	if (SDL_MUSTLOCK(gScreen))
     		if (SDL_LockSurface(gScreen) < 0)
     			return;
+		profZoneBegin(PROF_LUA);
 		blLuaCall(lhandle.blOOLuaState, lhandle.luaCB[CB_RENDER_STAGE_4].cbName, "");
+		profZoneEnd(PROF_LUA);
     	// Unlock screen if needed
     	if (SDL_MUSTLOCK(gScreen))
     		SDL_UnlockSurface(gScreen);
@@ -766,7 +789,9 @@ void engineDoRender(COLOR3D mode3D)
     	if (SDL_MUSTLOCK(gScreen))
     		if (SDL_LockSurface(gScreen) < 0)
     			return;
+		profZoneBegin(PROF_LUA);
 		blLuaCall(lhandle.blOOLuaState, lhandle.luaCB[CB_RENDER_STAGE_5].cbName, "");
+		profZoneEnd(PROF_LUA);
     	// Unlock screen if needed
     	if (SDL_MUSTLOCK(gScreen))
     		SDL_UnlockSurface(gScreen);
@@ -780,11 +805,14 @@ void engineDoRender(COLOR3D mode3D)
     	if (SDL_MUSTLOCK(gScreen))
     		if (SDL_LockSurface(gScreen) < 0)
     			return;
+		profZoneBegin(PROF_LUA);
 		blLuaCall(lhandle.blOOLuaState, lhandle.luaCB[CB_RENDER_STAGE_HUD].cbName, "");
+		profZoneEnd(PROF_LUA);
     	// Unlock if needed
     	if (SDL_MUSTLOCK(gScreen))
     		SDL_UnlockSurface(gScreen);
 	} else {
+		profZoneBegin(PROF_HUD);
 		if(!enableQuickDraw) {
 			if(!turboMode) {
 				if(lhandle.leveltime <= 0) {
@@ -802,9 +830,11 @@ void engineDoRender(COLOR3D mode3D)
 				}
 			}
 		}
+		profZoneEnd(PROF_HUD);
 	}
 
 
+	profZoneBegin(PROF_HUD);
 	char printString[100];
 
 	/* The status line used to sit in fixed columns at 20/190/310/440, spaced
@@ -958,6 +988,7 @@ void engineDoRender(COLOR3D mode3D)
 #endif // SHOWFRAMERATE
 
 	applyOutputFilter();
+	profZoneEnd(PROF_HUD);
 
 }
 

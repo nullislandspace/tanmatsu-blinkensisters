@@ -334,6 +334,75 @@ static BS_Surface* load_jpeg(const char* path) {
     return surf;
 }
 
+// --- Bilinear rescale ---
+// Used to stretch the fixed-size backdrops to the screen. Bilinear rather
+// than nearest because these are photographic images and the scale is a
+// gentle 1.25x, where nearest leaves visible stair-stepping.
+SDL_Surface* BS_ScaleSurface(const SDL_Surface* src, Sint32 dst_w, Sint32 dst_h) {
+    if (!src || !src->pixels || dst_w <= 0 || dst_h <= 0) return NULL;
+    if (src->w <= 0 || src->h <= 0) return NULL;
+
+    BS_Surface* dst = BS_CreateSurface(dst_w, dst_h);
+    if (!dst) return NULL;
+
+    // 16.16 fixed point step through the source. The -1s map the last output
+    // pixel onto the last source pixel, so the image reaches both edges.
+    uint32_t stepx = (dst_w > 1) ? (uint32_t)(((uint64_t)(src->w - 1) << 16) / (uint32_t)(dst_w - 1)) : 0;
+    uint32_t stepy = (dst_h > 1) ? (uint32_t)(((uint64_t)(src->h - 1) << 16) / (uint32_t)(dst_h - 1)) : 0;
+
+    for (Sint32 y = 0; y < dst_h; y++) {
+        uint32_t sy   = (uint32_t)y * stepy;
+        Sint32   y0   = (Sint32)(sy >> 16);
+        Sint32   y1   = (y0 + 1 < src->h) ? y0 + 1 : y0;
+        uint32_t fy   = sy & 0xFFFF;
+        const Uint32* row0 = src->pixels + (size_t)y0 * src->w;
+        const Uint32* row1 = src->pixels + (size_t)y1 * src->w;
+        Uint32* out = dst->pixels + (size_t)y * dst_w;
+
+        for (Sint32 x = 0; x < dst_w; x++) {
+            uint32_t sx = (uint32_t)x * stepx;
+            Sint32   x0 = (Sint32)(sx >> 16);
+            Sint32   x1 = (x0 + 1 < src->w) ? x0 + 1 : x0;
+            uint32_t fx = sx & 0xFFFF;
+
+            Uint32 p00 = row0[x0], p01 = row0[x1];
+            Uint32 p10 = row1[x0], p11 = row1[x1];
+
+            uint32_t acc[4];
+            for (int c = 0; c < 4; c++) {
+                uint32_t shift = (uint32_t)c * 8;
+                uint32_t c00 = (p00 >> shift) & 0xFF;
+                uint32_t c01 = (p01 >> shift) & 0xFF;
+                uint32_t c10 = (p10 >> shift) & 0xFF;
+                uint32_t c11 = (p11 >> shift) & 0xFF;
+                uint32_t top = c00 + (((c01 - c00) * fx) >> 16);
+                uint32_t bot = c10 + (((c11 - c10) * fx) >> 16);
+                acc[c] = top + (((bot - top) * fy) >> 16);
+            }
+            out[x] = (acc[3] << 24) | (acc[2] << 16) | (acc[1] << 8) | acc[0];
+        }
+    }
+    return dst;
+}
+
+SDL_Surface* BS_IMG_Load_Fullscreen(const char* filename, bool die_on_error) {
+    BS_Surface* surf = BS_IMG_Load_DisplayFormat(filename, die_on_error);
+    if (!surf) return NULL;
+    if (surf->w == SCR_WIDTH && surf->h == SCR_HEIGHT) {
+        return surf;
+    }
+    BS_Surface* scaled = BS_ScaleSurface(surf, SCR_WIDTH, SCR_HEIGHT);
+    if (!scaled) {
+        ESP_LOGW(TAG, "Fullscreen: cannot scale %s (%dx%d), using as-is",
+                 filename, (int)surf->w, (int)surf->h);
+        return surf;
+    }
+    ESP_LOGI(TAG, "Fullscreen: stretched %s from %dx%d to %dx%d",
+             filename, (int)surf->w, (int)surf->h, SCR_WIDTH, SCR_HEIGHT);
+    BS_FreeSurface(surf);
+    return scaled;
+}
+
 // --- Main image loader: detect format by extension ---
 SDL_Surface* BS_IMG_Load_DisplayFormat(const char* filename, bool die_on_error) {
     if (!filename || !filename[0]) return NULL;
