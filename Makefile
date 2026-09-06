@@ -111,6 +111,33 @@ installbmf:
 run:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) start $(APP_SLUG)
 
+# App repository
+
+APP_REPO_PATH ?= ../tanmatsu-app-repository/$(APP_SLUG)
+
+# Stage everything metadata.json promises into the app repository. The asset
+# paths have to match its source_file entries exactly, including the addons/
+# subdirectory -- the repository keeps that layout (see nl.mansoft.mqtt), and
+# the launcher creates the directories on install.
+#
+# Note the rename: the build produces tanmatsu-blinkensisters.bin, but the
+# repository entry is the "executable" metadata.json names, application.bin.
+.PHONY: apprepo
+apprepo: build
+	@echo "=== Updating app repository ==="
+	mkdir -p $(APP_REPO_PATH)/addons
+	cp metadata/metadata.json $(APP_REPO_PATH)/metadata.json
+	cp metadata/icon16.png $(APP_REPO_PATH)/icon16.png
+	cp metadata/icon32.png $(APP_REPO_PATH)/icon32.png
+	cp metadata/icon64.png $(APP_REPO_PATH)/icon64.png
+	cp $(BUILD)/tanmatsu-blinkensisters.bin $(APP_REPO_PATH)/application.bin
+	@echo "Copying game data (~70 MB)..."
+	cp sdcard/basedata.bmf $(APP_REPO_PATH)/basedata.bmf
+	cp sdcard/addons/*.bmf $(APP_REPO_PATH)/addons/
+	@echo "Checking every asset metadata.json declares is present..."
+	@python3 -c "import json,os,sys; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; missing=[x['source_file'] for x in a['assets'] if not os.path.isfile(os.path.join(p,x['source_file']))]; missing += [f for f in [a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'] if not os.path.isfile(os.path.join(p,f))]; sys.exit('MISSING in repo: '+', '.join(missing)) if missing else print('  all %d assets + executable + icons present' % len(a['assets']))"
+	@echo "=== App repository updated at $(APP_REPO_PATH) ==="
+
 # Preparation
 
 .PHONY: prepare
