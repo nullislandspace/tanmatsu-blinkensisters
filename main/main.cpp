@@ -76,6 +76,10 @@ static void game_task(void* arg) {
     configInit(false);
     configStartupComplete();
 
+    // The built-in sound effects live in the extracted game data, so they can
+    // only be loaded now that configInit() has unpacked it.
+    loadSoundFX();
+
     displayGraphicalErrors = true;
     initMenu();
 

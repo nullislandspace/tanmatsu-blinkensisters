@@ -38,6 +38,9 @@ void initMenu() {
 #ifndef DISABLE_BACKGROUND_ART
 	menubg = BS_IMG_Load_DisplayFormat(configGetPath("menubg.jpg"),DIE_ON_FILE_ERROR) ;
 	menuonlinebg = BS_IMG_Load_DisplayFormat(configGetPath("menuonlinebg.jpg"),DIE_ON_FILE_ERROR);
+	// Static opaque art: let the PPA blit it each menu frame.
+	BS_SurfaceFinalize(menubg);
+	BS_SurfaceFinalize(menuonlinebg);
 #endif
 }
 

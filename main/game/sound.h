@@ -21,6 +21,8 @@ typedef enum _FX_SOUNDS {
 } FX_SOUNDS;
 
 void initSound();
+/* Load the built-in FX samples; call once the game data is extracted. */
+void loadSoundFX();
 void soundStartMusic(const char* fname, bool playOnce = false, bool fullpathname = false);
 void soundStopMusic();
 void soundPlayFX(Uint32 fx);

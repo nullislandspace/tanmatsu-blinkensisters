@@ -121,7 +121,10 @@ void initBackground(const char *fname) {
 
 	SDL_FreeSurface(bgtemp);
 
-
+	// The background is built once and then only read, which is exactly the
+	// case the PPA can take over: mark it so the per-frame full-screen blit
+	// runs on the hardware instead of a per-pixel CPU loop.
+	BS_SurfaceFinalize(BG_Surface);
 }
 
 void deInitBackground() {

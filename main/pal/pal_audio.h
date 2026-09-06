@@ -21,6 +21,10 @@ void PAL_SoundStopMusic(void);
 bool PAL_SoundPlayOnceFinished(void);
 void PAL_SoundMusicFinished(void);
 
+// Load the built-in sound effects from the extracted game data. Must be
+// called after configInit(), which is what unpacks them.
+void PAL_SoundLoadPredefFX(void);
+
 // Sound FX by index (FX_SOUNDS values from game/sound.h)
 void PAL_SoundPlayFX(uint32_t fx);
 

@@ -236,13 +236,37 @@ static BS_Surface* load_jpeg(const char* path) {
 
     uint32_t w = info.width;
     uint32_t h = info.height;
-    // Hardware decoder output must be padded to 16-pixel MCU boundaries
-    uint32_t padded_w = (w + 15u) & ~15u;
-    uint32_t padded_h = (h + 15u) & ~15u;
+    if (w == 0 || h == 0) {
+        heap_caps_free(inbuf);
+        ESP_LOGW(TAG, "JPEG: no baseline SOF0 in %s (progressive?)", path);
+        return NULL;
+    }
+
+    // The hardware decoder writes whole MCUs, so its output picture is the
+    // image rounded up to the MCU grid -- and the MCU size depends on the
+    // chroma subsampling, which is what the sampling factors in the SOF
+    // encode. Assuming 16x16 for everything (as this used to) gets the output
+    // stride wrong for any 4:4:4 or 4:2:2 image whose width is not a multiple
+    // of 16, and the picture unpacks sheared instead of failing outright.
+    uint32_t mcu_w, mcu_h;
+    switch (info.sample_method) {
+        case JPEG_DOWN_SAMPLING_YUV420: mcu_w = 16; mcu_h = 16; break;
+        case JPEG_DOWN_SAMPLING_YUV422: mcu_w = 16; mcu_h =  8; break;
+        case JPEG_DOWN_SAMPLING_YUV444:
+        case JPEG_DOWN_SAMPLING_GRAY:   mcu_w =  8; mcu_h =  8; break;
+        default:
+            heap_caps_free(inbuf);
+            ESP_LOGW(TAG, "JPEG: unsupported sampling %d in %s",
+                     (int)info.sample_method, path);
+            return NULL;
+    }
+    uint32_t padded_w = ((w + mcu_w - 1u) / mcu_w) * mcu_w;
+    uint32_t padded_h = ((h + mcu_h - 1u) / mcu_h) * mcu_h;
     size_t out_buf_size = (size_t)padded_w * padded_h * 3;
 
-    ESP_LOGI(TAG, "JPEG: %s %" PRIu32 "x%" PRIu32 " (padded %" PRIu32 "x%" PRIu32 "), need %u bytes",
-             path, w, h, padded_w, padded_h, (unsigned)out_buf_size);
+    ESP_LOGI(TAG, "JPEG: %s %" PRIu32 "x%" PRIu32 " (mcu %" PRIu32 "x%" PRIu32
+                  ", padded %" PRIu32 "x%" PRIu32 "), need %u bytes",
+             path, w, h, mcu_w, mcu_h, padded_w, padded_h, (unsigned)out_buf_size);
 
     jpeg_decode_memory_alloc_cfg_t out_cfg = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
     size_t out_alloc = 0;
@@ -280,15 +304,28 @@ static BS_Surface* load_jpeg(const char* path) {
         return NULL;
     }
 
+    // The decoder reports the size it actually produced. If that disagrees
+    // with the padding worked out above, the unpack stride below would be
+    // wrong, so refuse rather than draw a sheared picture.
+    size_t expect = (size_t)padded_w * padded_h * 3;
+    if (out_size != expect) {
+        ESP_LOGW(TAG, "JPEG: %s produced %u bytes, expected %u (stride mismatch)",
+                 path, (unsigned)out_size, (unsigned)expect);
+        heap_caps_free(outbuf);
+        return NULL;
+    }
+
     BS_Surface* surf = BS_CreateSurface((Sint32)w, (Sint32)h);
     if (!surf) { heap_caps_free(outbuf); return NULL; }
 
     // BGR888 with padded row stride -> BS_Surface RGBA32
     for (uint32_t row = 0; row < h; row++) {
+        const uint8_t* src = outbuf + (size_t)row * padded_w * 3;
+        Uint32* dst = surf->pixels + (size_t)row * w;
         for (uint32_t col = 0; col < w; col++) {
-            const uint8_t* src = outbuf + (row * padded_w + col) * 3;
             uint8_t b = src[0], g = src[1], r = src[2];
-            surf->pixels[row * w + col] = BS_MapRGBA(r, g, b, 0xff);
+            src += 3;
+            dst[col] = BS_MapRGBA(r, g, b, 0xff);
         }
     }
 

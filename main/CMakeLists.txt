@@ -32,6 +32,8 @@ idf_component_register(
         esp_psram
         driver
         esp_driver_jpeg
+        esp_driver_ppa
+        esp_mm
         sdmmc
     INCLUDE_DIRS
         "."
@@ -48,7 +50,7 @@ idf_build_set_property(COMPILE_OPTIONS "-DTANMATSU_BUILD=1" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-DLODEPNG_NO_COMPILE_ALLOCATORS" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-DDISABLE_NETWORK=1" APPEND)
 # Uncomment to disable background art and save memory:
-idf_build_set_property(COMPILE_OPTIONS "-DDISABLE_BACKGROUND_ART=1" APPEND)
+#idf_build_set_property(COMPILE_OPTIONS "-DDISABLE_BACKGROUND_ART=1" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=unused-variable" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=unused-const-variable" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=unused-function" APPEND)

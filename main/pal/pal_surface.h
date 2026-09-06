@@ -19,6 +19,7 @@ typedef struct {
     Uint32  colorkey;   // colorkey pixel value (if colorkey_enabled)
     bool    colorkey_enabled;
     Uint32  format_flags; // unused, kept for compat
+    bool    ppa_src_ready; // pixels have been flushed for PPA DMA reads
     BS_Surface_Format *format;
     BS_Surface_Format  _format_data;
 } BS_Surface;
@@ -30,6 +31,18 @@ typedef BS_Surface SDL_Surface;
 BS_Surface* BS_CreateSurface(Sint32 w, Sint32 h);
 void        BS_FreeSurface(BS_Surface* s);
 BS_Surface* BS_DupSurface(const BS_Surface* src);
+
+// "I am done drawing into this surface, and every pixel of it is opaque."
+// Pushes its pixels out of the CPU cache and marks it usable as a PPA source,
+// which lets BS_BlitSurface hand whole-screen copies from it to the hardware.
+//
+// Both halves of that promise matter. The flush is only valid until the next
+// CPU write, so a surface redrawn each frame must not be marked. And the PPA
+// copy is a plain block move: it does not honour the colour-key or the
+// alpha == 0 test the CPU blitter applies, so marking a surface with
+// transparent pixels would paint them opaque. Backgrounds qualify; sprites
+// and the green-to-alpha parallax layer do not.
+void BS_SurfaceFinalize(BS_Surface* s);
 
 // SDL API wrappers
 static inline BS_Surface* SDL_CreateRGBSurface(Uint32 flags, Sint32 w, Sint32 h,

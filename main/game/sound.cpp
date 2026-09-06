@@ -12,6 +12,10 @@ void initSound() {
     soundInitOK = true;
 }
 
+void loadSoundFX() {
+    PAL_SoundLoadPredefFX();
+}
+
 void deInitSound() {
     PAL_AudioDeInit();
     soundInitOK = false;
