@@ -14,7 +14,12 @@ Two configs here have **no shipped archive**, so their artwork is not
 recoverable from this repository and has to come from the upstream tree:
 `mz_template` (the skeleton for a new addon, and still the best starting point
 for a custom level) and `mz_testlevel` (a development test level). Upstream
-builds nine addons; this port ships seven.
+builds nine addons; this port ships six.
+
+`mz_xmas2007` sits in between: it is built and kept in `sdcard/addons/`, so its
+artwork *is* recoverable with `bmfextract`, but it is deliberately left out of
+`metadata/metadata.json` and therefore out of the published release while its
+problems are sorted out.
 
 ## Rebuilding an addon
 

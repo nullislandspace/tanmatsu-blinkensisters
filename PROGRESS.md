@@ -3,9 +3,9 @@
 ## Status: Beta test candidate (2026-09-06)
 
 Plays end to end: menu, addon selection, all LostPixels levels, death and
-end screens, highscores, return to launcher. ~25 fps in gameplay. Seven
-addons. Published to the app repository as `at.cavac.blinkensisters`
-(`make apprepo`).
+end screens, highscores, return to launcher. ~25 fps in gameplay. Six addons
+published to the app repository as `at.cavac.blinkensisters` (`make apprepo`);
+a seventh, `mz_xmas2007`, is built and in `sdcard/` but held back.
 
 ---
 
@@ -212,12 +212,18 @@ the device or it will keep using what it already unpacked.
 `metadata.json` sets `external_only`, so the launcher installs to SD card
 only -- the data does not fit in internal flash.
 
+`make apprepo` copies exactly the assets `metadata.json` declares, rather than
+globbing `sdcard/`, so that one file decides what ships: an archive can sit in
+`sdcard/` unpublished (`mz_xmas2007` does) and removing its entry withdraws it.
+Anything in the repository that metadata no longer names is reported as a
+stray, since it would bloat the repository while shipping to nobody.
+
 `make apprepo` stages the whole release into the app repository: metadata,
 icons, the binary **renamed to application.bin** (the build calls it
 tanmatsu-blinkensisters.bin, metadata.json names the other), and the BMFs
 with their `addons/` subdirectory preserved, because that is what the asset
 `source_file` entries say. It then re-reads metadata.json and checks every
-declared asset actually landed -- with seven assets across two directories a
+declared asset actually landed -- with several assets across two directories a
 silent `cp` omission would otherwise only surface as a failed install on
 someone else's badge.
 

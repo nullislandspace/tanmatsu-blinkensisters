@@ -128,6 +128,12 @@ APP_REPO_PATH ?= ../tanmatsu-app-repository/$(APP_SLUG)
 # subdirectory -- the repository keeps that layout (see nl.mansoft.mqtt), and
 # the launcher creates the directories on install.
 #
+# The data copy is driven BY metadata.json rather than by a glob over sdcard/,
+# so metadata.json is the single thing that decides what ships. An archive can
+# then live in sdcard/ without being published -- mz_xmas2007 does -- and
+# dropping an entry is enough to withdraw it. A glob would quietly publish
+# whatever happened to be lying in the directory.
+#
 # Note the rename: the build produces tanmatsu-blinkensisters.bin, but the
 # repository entry is the "executable" metadata.json names, application.bin.
 .PHONY: apprepo
@@ -140,10 +146,14 @@ apprepo: build
 	cp metadata/icon64.png $(APP_REPO_PATH)/icon64.png
 	cp $(BUILD)/tanmatsu-blinkensisters.bin $(APP_REPO_PATH)/application.bin
 	@echo "Copying game data (~70 MB)..."
-	cp sdcard/basedata.bmf $(APP_REPO_PATH)/basedata.bmf
-	cp sdcard/addons/*.bmf $(APP_REPO_PATH)/addons/
+	@for f in $$(python3 -c "import json;print(' '.join(x['source_file'] for x in json.load(open('metadata/metadata.json'))['application'][0]['assets']))"); do \
+		echo "  $$f"; \
+		mkdir -p $(APP_REPO_PATH)/$$(dirname $$f); \
+		cp sdcard/$$f $(APP_REPO_PATH)/$$f || exit 1; \
+	done
 	@echo "Checking every asset metadata.json declares is present..."
 	@python3 -c "import json,os,sys; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; missing=[x['source_file'] for x in a['assets'] if not os.path.isfile(os.path.join(p,x['source_file']))]; missing += [f for f in [a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'] if not os.path.isfile(os.path.join(p,f))]; sys.exit('MISSING in repo: '+', '.join(missing)) if missing else print('  all %d assets + executable + icons present' % len(a['assets']))"
+	@python3 -c "import json,os,glob; p='$(APP_REPO_PATH)'; d=set(x['source_file'] for x in json.load(open('metadata/metadata.json'))['application'][0]['assets']); stray=sorted(os.path.relpath(f,p) for f in glob.glob(p+'/**/*.bmf',recursive=True) if os.path.relpath(f,p) not in d); print('  WARNING: in the repository but NOT declared in metadata.json, so it ships to nobody and merely bloats the repo:') if stray else None; [print('    '+f) for f in stray]"
 	@echo "=== App repository updated at $(APP_REPO_PATH) ==="
 
 # Preparation
