@@ -20,6 +20,10 @@ static const char* const zone_names[PROF_ZONE_COUNT] = {
     "sprites", "lua", "hud", "rotate", "panel blit",
 };
 
+static const char* const sub_names[PROF_SUB_COUNT] = { "cache sync", "ppa wait" };
+
+static int64_t  s_sub_start[PROF_SUB_COUNT];
+static int64_t  s_sub_total[PROF_SUB_COUNT];
 static int64_t  s_zone_start[PROF_ZONE_COUNT];
 static int64_t  s_zone_total[PROF_ZONE_COUNT];   // microseconds since the report
 static uint32_t s_frames      = 0;
@@ -43,9 +47,23 @@ void profZoneEnd(prof_zone_t zone) {
     s_zone_start[zone] = 0;
 }
 
+void profSubBegin(prof_sub_t sub) {
+    if (sub < 0 || sub >= PROF_SUB_COUNT) return;
+    s_sub_start[sub] = esp_timer_get_time();
+}
+
+void profSubEnd(prof_sub_t sub) {
+    if (sub < 0 || sub >= PROF_SUB_COUNT) return;
+    if (s_sub_start[sub] == 0) return;
+    s_sub_total[sub] += esp_timer_get_time() - s_sub_start[sub];
+    s_sub_start[sub] = 0;
+}
+
 void profReset(void) {
     memset(s_zone_total, 0, sizeof(s_zone_total));
     memset(s_zone_start, 0, sizeof(s_zone_start));
+    memset(s_sub_total, 0, sizeof(s_sub_total));
+    memset(s_sub_start, 0, sizeof(s_sub_start));
     s_frames = 0;
     s_window_start = esp_timer_get_time();
 }
@@ -91,7 +109,14 @@ void profFrameEnd(void) {
     // "other" is everything outside the measured zones: the frame-rate limiter
     // in renderEngine, input handling, and whatever is not instrumented yet.
     ESP_LOGI(TAG, "  %-11s %7.2f ms  %5.1f%%", "other/idle", other_ms, other_pct);
+    for (int i = 0; i < PROF_SUB_COUNT; i++) {
+        double ms  = (double)s_sub_total[i] / 1000.0 / frames;
+        double pct = elapsed_us ? (100.0 * (double)s_sub_total[i] / (double)elapsed_us) : 0.0;
+        if (ms < 0.005) continue;
+        ESP_LOGI(TAG, "  (of which %-11s %7.2f ms  %5.1f%%)", sub_names[i], ms, pct);
+    }
 
+    memset(s_sub_total, 0, sizeof(s_sub_total));
     memset(s_zone_total, 0, sizeof(s_zone_total));
     s_frames = 0;
     s_window_start = now;

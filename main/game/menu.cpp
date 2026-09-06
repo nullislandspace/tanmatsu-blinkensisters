@@ -516,6 +516,9 @@ bool menuAddonDisplay() {
 					playGame();
 					configResetAddOn();
 					soundStartMusic("ADDON/LostPixels/menuMusic.mp3");
+					// The game and its end screens have their own input
+					// handling; do not inherit whatever they left behind.
+					flushJoystick();
 				} else {
 					menuRunning = false;
 				}

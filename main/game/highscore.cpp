@@ -253,6 +253,12 @@ void waitHighscore() {
 		// Require less CPU
 		SDL_Delay(10);
 	}
+
+	// Flush on the way OUT as well as in. This screen can be dismissed by the
+	// joystick release edge OR by an SDL key event, and the same physical key
+	// produces both -- so whichever one did not end the loop was still queued
+	// when it returned, and the menu underneath consumed it as its own select.
+	flushJoystick();
 }
 
 

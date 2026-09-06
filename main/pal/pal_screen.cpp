@@ -31,6 +31,7 @@ BS_Surface* gScreen = NULL;
 static uint8_t* phys_fb = NULL;
 static bool     s_use_ppa = false;
 static bool     s_flip_rgb_swap = false;
+static bool     s_flip_byte_swap = false;
 
 // Job id for the one PPA op a flip submits. Ids only need to be unique among
 // the jobs in flight, and the flip drains its own, so a constant is fine.
@@ -61,94 +62,105 @@ static void rotate_reference(const Uint32* px, int log_w, int log_h,
     }
 }
 
-// Work out what the PPA's rgb_swap actually does, by doing it.
+// Work out what the PPA's input reordering knobs actually do, by doing them.
 //
-// The driver's description is ambiguous -- "ARGB becomes BGRA" reads as a
-// byte reversal, "RGB becomes BGR" as a red/blue swap -- and getting it wrong
-// transposes every colour on the panel, which is not something this code can
-// see. So rotate a small known pattern both ways and keep whichever matches
-// the CPU path byte for byte. If neither does, the hardware is doing
-// something unexpected and we stay on the CPU.
-static bool calibrate_flip(bool* out_rgb_swap) {
-    const int lw = 32, lh = 16;         // logical test image
-    const int pw = lh, ph = lw;         // its rotated shape
-    const size_t raw   = (size_t)pw * ph * 3;
-    const size_t bufsz = (raw + PHYS_FB_ALIGN - 1) & ~(size_t)(PHYS_FB_ALIGN - 1);
-
-    bool ok = false;
-    BS_Surface* test = BS_CreateSurface(lw, lh);
-    uint8_t* got  = (uint8_t*)heap_caps_aligned_alloc(PHYS_FB_ALIGN, bufsz, MALLOC_CAP_SPIRAM);
-    uint8_t* want = (uint8_t*)malloc(raw);
-    if (!test || !got || !want) {
-        goto done;
+// The driver describes rgb_swap two incompatible ways ("ARGB becomes BGRA"
+// reads as a byte reversal, "RGB becomes BGR" as a channel swap) and offers a
+// separate byte_swap on top, and getting the combination wrong changes every
+// colour on a panel this code cannot see. So try the combinations on the real
+// framebuffers and keep whichever reproduces the CPU rotation byte for byte.
+//
+// This runs at the production geometry, using gScreen and phys_fb themselves.
+// An earlier version used a small scratch pair instead and matched nothing,
+// which told us only that the PPA behaves differently at that size -- not
+// anything useful about the screen.
+static bool calibrate_flip(bool* out_rgb_swap, bool* out_byte_swap) {
+    const size_t raw = PHYS_FB_SIZE_RAW;
+    uint8_t* want = (uint8_t*)heap_caps_malloc(raw, MALLOC_CAP_SPIRAM);
+    if (!want) {
+        ESP_LOGW(TAG, "flip calib: no memory for the reference image");
+        return false;
     }
 
-    // A pattern with all three channels independent, so a swap of any two
-    // cannot go unnoticed.
-    for (int y = 0; y < lh; y++) {
-        for (int x = 0; x < lw; x++) {
-            uint8_t r = (uint8_t)(x * 8 + 1);
-            uint8_t g = (uint8_t)(y * 16 + 3);
-            uint8_t b = (uint8_t)(255 - x * 8);
-            test->pixels[(size_t)y * lw + x] = BS_MapRGBA(r, g, b, 0xff);
+    // A pattern with all three channels independent, so no reordering of them
+    // can accidentally match.
+    for (int y = 0; y < LOG_H; y++) {
+        for (int x = 0; x < LOG_W; x++) {
+            uint8_t r = (uint8_t)(x & 0xff);
+            uint8_t g = (uint8_t)((y * 3) & 0xff);
+            uint8_t b = (uint8_t)((255 - (x & 0xff)) ^ (uint8_t)y);
+            gScreen->pixels[(size_t)y * LOG_W + x] = BS_MapRGBA(r, g, b, 0xff);
         }
     }
-    rotate_reference(test->pixels, lw, lh, want, pw);
+    rotate_reference(gScreen->pixels, LOG_W, LOG_H, want, PHYS_W);
 
-    for (int attempt = 0; attempt < 2 && !ok; attempt++) {
-        bool swap = (attempt == 1);
-        memset(got, 0, bufsz);
-        esp_cache_msync(got, bufsz,
+    bool ok = false;
+    for (int combo = 0; combo < 4 && !ok; combo++) {
+        bool rgb  = (combo & 1) != 0;
+        bool byte = (combo & 2) != 0;
+
+        memset(phys_fb, 0, PHYS_FB_SIZE);
+        esp_cache_msync(phys_fb, PHYS_FB_SIZE,
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
-        PAL_PPA_FlushSurface(test);
-        if (!PAL_PPA_FlipToPanel(test, JOB_CALIBRATE, got, bufsz, pw, ph, swap)) {
+        PAL_PPA_FlushSurface(gScreen);
+        if (!PAL_PPA_FlipToPanel(gScreen, JOB_CALIBRATE, phys_fb, PHYS_FB_SIZE,
+                                 PHYS_W, PHYS_H, rgb, byte)) {
+            ESP_LOGW(TAG, "flip calib: rgb_swap=%d byte_swap=%d refused", (int)rgb, (int)byte);
             continue;
         }
         PAL_PPA_WaitJob(JOB_CALIBRATE);
         // The PPA wrote this by DMA; drop our stale lines before reading it.
-        esp_cache_msync(got, bufsz,
+        esp_cache_msync(phys_fb, PHYS_FB_SIZE,
                         ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
-        if (memcmp(got, want, raw) == 0) {
-            *out_rgb_swap = swap;
+
+        if (memcmp(phys_fb, want, raw) == 0) {
+            *out_rgb_swap  = rgb;
+            *out_byte_swap = byte;
             ok = true;
             break;
         }
+
         // Say exactly how it differed, so a mismatch is diagnosable from the
-        // log rather than by guessing at the driver's documentation again.
+        // log rather than by guessing at the documentation again.
         size_t bad = 0;
-        while (bad < raw && got[bad] == want[bad]) bad++;
-        ESP_LOGW(TAG, "flip calib: rgb_swap=%d differs at byte %u of %u "
+        while (bad < raw && phys_fb[bad] == want[bad]) bad++;
+        ESP_LOGW(TAG, "flip calib: rgb=%d byte=%d differs at byte %u/%u "
                       "(pixel %u, channel %u)",
-                 (int)swap, (unsigned)bad, (unsigned)raw,
+                 (int)rgb, (int)byte, (unsigned)bad, (unsigned)raw,
                  (unsigned)(bad / 3), (unsigned)(bad % 3));
-        ESP_LOGW(TAG, "  want %02x %02x %02x | %02x %02x %02x | %02x %02x %02x",
-                 want[0], want[1], want[2], want[3], want[4], want[5],
-                 want[6], want[7], want[8]);
-        ESP_LOGW(TAG, "  got  %02x %02x %02x | %02x %02x %02x | %02x %02x %02x",
-                 got[0], got[1], got[2], got[3], got[4], got[5],
-                 got[6], got[7], got[8]);
-        // Where did the first source pixel actually land? If it is anywhere
-        // but byte 0, the rotation, not the colour order, is what differs.
-        uint8_t r0 = (uint8_t)(test->pixels[0] & 0xff);
-        uint8_t g0 = (uint8_t)((test->pixels[0] >> 8) & 0xff);
-        uint8_t b0 = (uint8_t)((test->pixels[0] >> 16) & 0xff);
+        ESP_LOGW(TAG, "  want %02x %02x %02x | %02x %02x %02x",
+                 want[0], want[1], want[2], want[3], want[4], want[5]);
+        ESP_LOGW(TAG, "  got  %02x %02x %02x | %02x %02x %02x",
+                 phys_fb[0], phys_fb[1], phys_fb[2],
+                 phys_fb[3], phys_fb[4], phys_fb[5]);
+        // Where did the source's top-left pixel actually land? Anywhere but
+        // the expected slot means the rotation differs, not the colour order.
+        Uint32 p0 = gScreen->pixels[0];
+        uint8_t r0 = (uint8_t)(p0 & 0xff);
+        uint8_t g0 = (uint8_t)((p0 >> 8) & 0xff);
+        uint8_t b0 = (uint8_t)((p0 >> 16) & 0xff);
         for (size_t i = 0; i + 2 < raw; i += 3) {
-            if ((got[i] == b0 && got[i+1] == g0 && got[i+2] == r0) ||
-                (got[i] == r0 && got[i+1] == g0 && got[i+2] == b0)) {
-                ESP_LOGW(TAG, "  source pixel (0,0) rgb %02x%02x%02x landed at "
-                              "output pixel %u (row %u, col %u); expected %u",
+            if (phys_fb[i+1] == g0 &&
+                ((phys_fb[i] == b0 && phys_fb[i+2] == r0) ||
+                 (phys_fb[i] == r0 && phys_fb[i+2] == b0))) {
+                ESP_LOGW(TAG, "  source (0,0) rgb %02x%02x%02x landed at pixel %u "
+                              "(row %u col %u); the CPU path puts it at %u",
                          r0, g0, b0, (unsigned)(i / 3),
-                         (unsigned)(i / 3 / (size_t)pw), (unsigned)(i / 3 % (size_t)pw),
-                         (unsigned)(pw - 1));
+                         (unsigned)(i / 3 / (size_t)PHYS_W),
+                         (unsigned)(i / 3 % (size_t)PHYS_W),
+                         (unsigned)(PHYS_W - 1));
                 break;
             }
         }
     }
 
-done:
-    if (test) BS_FreeSurface(test);
-    if (got)  heap_caps_free(got);
-    if (want) free(want);
+    heap_caps_free(want);
+    // Leave the screen black whatever happened; the test pattern is not
+    // something anyone wants to see flash up.
+    memset(gScreen->pixels, 0, (size_t)LOG_W * LOG_H * sizeof(Uint32));
+    memset(phys_fb, 0, PHYS_FB_SIZE);
+    esp_cache_msync(phys_fb, PHYS_FB_SIZE,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
     return ok;
 }
 
@@ -179,9 +191,10 @@ void BS_InitScreen(void) {
     // false and the CPU path runs instead.
     s_use_ppa = PAL_PPA_Init();
     if (s_use_ppa) {
-        if (calibrate_flip(&s_flip_rgb_swap)) {
-            ESP_LOGI(TAG, "PPA flip calibrated: rgb_swap=%s",
-                     s_flip_rgb_swap ? "true" : "false");
+        if (calibrate_flip(&s_flip_rgb_swap, &s_flip_byte_swap)) {
+            ESP_LOGI(TAG, "PPA flip calibrated: rgb_swap=%s byte_swap=%s",
+                     s_flip_rgb_swap ? "true" : "false",
+                     s_flip_byte_swap ? "true" : "false");
         } else {
             ESP_LOGW(TAG, "PPA flip does not match the CPU reference either way; "
                           "falling back to the CPU rotation");
@@ -262,7 +275,7 @@ int BS_Flip(BS_Surface* screen) {
         // PPA's DMA goes looking for it.
         PAL_PPA_FlushSurface(screen);
         if (PAL_PPA_FlipToPanel(screen, JOB_FLIP, phys_fb, PHYS_FB_SIZE,
-                                PHYS_W, PHYS_H, s_flip_rgb_swap)) {
+                                PHYS_W, PHYS_H, s_flip_rgb_swap, s_flip_byte_swap)) {
             PAL_PPA_WaitJob(JOB_FLIP);
             rotated = true;
         }

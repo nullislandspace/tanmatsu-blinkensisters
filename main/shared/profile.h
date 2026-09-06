@@ -31,10 +31,22 @@ typedef enum {
     PROF_ZONE_COUNT
 } prof_zone_t;
 
+/* Sub-zones are NESTED inside the zones above (cache maintenance and PPA
+   waits happen during background, rotate and so on), so they are reported
+   separately as "of which" and are not part of the frame total. */
+typedef enum {
+    PROF_SUB_CACHE = 0,   // esp_cache_msync on surfaces
+    PROF_SUB_PPAWAIT,     // blocked waiting for a PPA job
+    PROF_SUB_COUNT
+} prof_sub_t;
+
 #ifndef DISABLE_FRAME_PROFILER
 
 void profZoneBegin(prof_zone_t zone);
 void profZoneEnd(prof_zone_t zone);
+
+void profSubBegin(prof_sub_t sub);
+void profSubEnd(prof_sub_t sub);
 
 /* Count one displayed frame, and emit the report when due. */
 void profFrameEnd(void);
@@ -49,6 +61,8 @@ void profReset(void);
 
 static inline void profZoneBegin(prof_zone_t zone) { (void)zone; }
 static inline void profZoneEnd(prof_zone_t zone) { (void)zone; }
+static inline void profSubBegin(prof_sub_t sub) { (void)sub; }
+static inline void profSubEnd(prof_sub_t sub) { (void)sub; }
 static inline void profFrameEnd(void) {}
 static inline void profSetRotationPath(const char* name) { (void)name; }
 static inline void profReset(void) {}

@@ -5,6 +5,7 @@
 // =====================================================================
 
 #include "pal_ppa.h"
+#include "shared/profile.h"
 
 extern "C" {
 #include "driver/ppa.h"
@@ -179,7 +180,9 @@ static void surface_msync(const BS_Surface* s, int flags, const char* what) {
                  what, (int)s->w, (int)s->h);
         return;
     }
+    profSubBegin(PROF_SUB_CACHE);
     esp_err_t err = esp_cache_msync(s->pixels, len, flags);
+    profSubEnd(PROF_SUB_CACHE);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "%s: esp_cache_msync failed: %d", what, err);
     }
@@ -297,7 +300,8 @@ bool PAL_PPA_Blit(const BS_Surface* src, uint32_t job_id,
 
 bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
                          void* phys, size_t phys_size,
-                         int phys_w, int phys_h, bool rgb_swap) {
+                         int phys_w, int phys_h,
+                         bool rgb_swap, bool byte_swap) {
     if (!s_inited || !screen || !screen->pixels || !phys) {
         return false;
     }
@@ -334,7 +338,7 @@ bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
     // The RGB888 the PPA writes is byte order B,G,R, which is what the panel
     // wants; `rgb_swap` decides how the input's channels reach it.
     job.cfg.srm.rgb_swap           = rgb_swap;
-    job.cfg.srm.byte_swap          = false;
+    job.cfg.srm.byte_swap          = byte_swap;
     job.cfg.srm.alpha_update_mode  = PPA_ALPHA_NO_CHANGE;
     job.cfg.srm.mode               = PPA_TRANS_MODE_NON_BLOCKING;
     return ppa_enqueue(&job);
@@ -345,18 +349,20 @@ bool PAL_PPA_FlipToPanel(const BS_Surface* screen, uint32_t job_id,
 void PAL_PPA_WaitJob(uint32_t job_id) {
     // Drain finished ids until job_id pops. Execution is in submission order,
     // so by then everything submitted before it is done as well.
+    profSubBegin(PROF_SUB_PPAWAIT);
     while (s_inflight > 0) {
         uint32_t done;
         if (xQueueReceive(s_done_q, &done, pdMS_TO_TICKS(PPA_WAIT_TIMEOUT_MS)) != pdTRUE) {
             ESP_LOGW(TAG, "wait_job(%u) timed out (%d in flight)",
                      (unsigned)job_id, s_inflight);
-            return;
+            break;
         }
         s_inflight--;
         if (done == job_id) {
-            return;
+            break;
         }
     }
+    profSubEnd(PROF_SUB_PPAWAIT);
 }
 
 void PAL_PPA_WaitAll(void) {
