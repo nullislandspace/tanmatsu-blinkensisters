@@ -32,12 +32,30 @@ static const char* TAG = "pal_ppa";
 // PSRAM L2 cache line; PPA output buffers must be aligned to it.
 #define PPA_CACHE_LINE       128
 
+// Run ops synchronously in the caller's task instead of handing them to the
+// pump.
+//
+// The pump exists so that a BATCH of ops keeps its submission order across
+// client types. Nothing here batches: every submit is followed immediately by
+// a wait for that same job, so the pump only adds a round trip -- enqueue,
+// wake the pump on the other core, run, ISR, wake the pump again, post, wake
+// the caller. With FreeRTOS on a 100 Hz tick that round trip measured about
+// 10.5 ms per op, against roughly 6.5 ms of actual transfer: fitting the four
+// (bytes, time) pairs from the 32- and 16-bit builds gave 227 and 240 MB/s
+// with a 11.3 and 10.2 ms fixed cost, i.e. one tick.
+//
+// Set to 0 to go back to the pump; the API is identical either way, and the
+// pump is still the right answer if this ever starts batching.
+#define PPA_DIRECT_BLOCKING  1
+
 static ppa_client_handle_t s_srm_client  = NULL;
 static ppa_client_handle_t s_fill_client = NULL;
 static QueueHandle_t       s_submit_q    = NULL;  // game -> pump
 static QueueHandle_t       s_done_q      = NULL;  // pump -> game
 static SemaphoreHandle_t   s_op_done_sem = NULL;  // ISR  -> pump
+#if !PPA_DIRECT_BLOCKING
 static TaskHandle_t        s_pump_task   = NULL;
+#endif
 static int                 s_inflight    = 0;     // producer task only
 static bool                s_inited      = false;
 
@@ -69,7 +87,32 @@ static bool ppa_on_trans_done(ppa_client_handle_t client,
     return hpw == pdTRUE;
 }
 
-static bool ppa_enqueue(const ppa_job_t* job) {
+static esp_err_t ppa_run(ppa_job_t* job) {
+    switch (job->type) {
+        case PPA_JOB_SRM:  return ppa_do_scale_rotate_mirror(s_srm_client, &job->cfg.srm);
+        case PPA_JOB_FILL: return ppa_do_fill(s_fill_client, &job->cfg.fill);
+    }
+    return ESP_FAIL;
+}
+
+static bool ppa_enqueue(ppa_job_t* job) {
+#if PPA_DIRECT_BLOCKING
+    // Blocking mode: the driver waits for completion itself, so there is
+    // nothing left for PAL_PPA_WaitJob() to do.
+    switch (job->type) {
+        case PPA_JOB_SRM:  job->cfg.srm.mode  = PPA_TRANS_MODE_BLOCKING; break;
+        case PPA_JOB_FILL: job->cfg.fill.mode = PPA_TRANS_MODE_BLOCKING; break;
+    }
+    profSubBegin(PROF_SUB_PPAWAIT);
+    esp_err_t err = ppa_run(job);
+    profSubEnd(PROF_SUB_PPAWAIT);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "job %u (type %d) failed: %d",
+                 (unsigned)job->id, (int)job->type, err);
+        return false;
+    }
+    return true;
+#else
     if (xQueueSend(s_submit_q, job, 0) != pdTRUE) {
         ESP_LOGW(TAG, "submit queue full (depth %d); job %u refused",
                  (int)PPA_QUEUE_DEPTH, (unsigned)job->id);
@@ -77,8 +120,10 @@ static bool ppa_enqueue(const ppa_job_t* job) {
     }
     s_inflight++;
     return true;
+#endif
 }
 
+#if !PPA_DIRECT_BLOCKING
 // The pump: submit one op, wait for it, record its id, repeat. Task context,
 // so the driver's blocking submit calls are legal here. One op in flight
 // means execution order == submission order.
@@ -89,11 +134,7 @@ static void ppa_pump_task(void* arg) {
         if (xQueueReceive(s_submit_q, &job, portMAX_DELAY) != pdTRUE) {
             continue;
         }
-        esp_err_t err = ESP_FAIL;
-        switch (job.type) {
-            case PPA_JOB_SRM:  err = ppa_do_scale_rotate_mirror(s_srm_client, &job.cfg.srm); break;
-            case PPA_JOB_FILL: err = ppa_do_fill(s_fill_client, &job.cfg.fill);              break;
-        }
+        esp_err_t err = ppa_run(&job);
         if (err == ESP_OK) {
             if (xSemaphoreTake(s_op_done_sem, pdMS_TO_TICKS(PPA_WAIT_TIMEOUT_MS)) != pdTRUE) {
                 ESP_LOGW(TAG, "pump: job %u completion timed out", (unsigned)job.id);
@@ -109,6 +150,7 @@ static void ppa_pump_task(void* arg) {
         }
     }
 }
+#endif // !PPA_DIRECT_BLOCKING
 
 bool PAL_PPA_Init(void) {
     if (s_inited) {
@@ -148,14 +190,17 @@ bool PAL_PPA_Init(void) {
     }
 
     s_inflight = 0;
+#if !PPA_DIRECT_BLOCKING
     if (xTaskCreatePinnedToCore(ppa_pump_task, "ppa_pump", PPA_PUMP_STACK, NULL,
                                 PPA_PUMP_PRIO, &s_pump_task, PPA_PUMP_CORE) != pdPASS) {
         ESP_LOGE(TAG, "failed to create PPA pump task");
         return false;
     }
+#endif
 
     s_inited = true;
-    ESP_LOGI(TAG, "PPA compositor up");
+    ESP_LOGI(TAG, "PPA compositor up (%s)",
+             PPA_DIRECT_BLOCKING ? "direct blocking" : "pump task");
     return true;
 }
 
