@@ -1,16 +1,15 @@
 #include "pal_input.h"
 #include "bsp/input.h"
 #include "bsp/device.h"
-#include "esp_log.h"
 // Include joystick.h for JOYSTICK_* enum values
 // joystick.h includes pal_types.h for Uint32, and defines JOYSTICK_MOVE enum
 #include "../game/joystick.h"
 
-static const char* TAG = "pal_input";
-
 static QueueHandle_t s_input_queue = NULL;
 
-// Persistent state for button tracking (to detect edges)
+// --- Button level state -------------------------------------------------
+// These track "is the key down right now" and drive PAL_GetJoystickMoves(),
+// which gameplay uses for continuous movement.
 static bool s_jump_pressed   = false;
 static bool s_action_pressed = false;
 static bool s_pause_pressed  = false;
@@ -21,6 +20,23 @@ static bool s_left  = false;
 static bool s_right = false;
 static bool s_up    = false;
 static bool s_down  = false;
+
+// --- Button release edges ----------------------------------------------
+// Menus and one-shot toggles (pause) must fire when a key is RELEASED, not
+// while it is held: acting on the press means the matching release is still
+// queued when the next screen opens, and that screen then consumes it as its
+// own input (pressing "Play" used to run straight through the addon list and
+// launch the first entry). Releases accumulate here and are consumed — and
+// cleared — by PAL_GetJoystickReleases().
+static Uint32 s_released_edges = 0;
+
+// Apply a press/release to a button's level state, recording a release edge.
+static void update_button(bool* state, bool pressed, Uint32 button) {
+    if (*state && !pressed) {
+        s_released_edges |= button;
+    }
+    *state = pressed;
+}
 
 // --- SDL_Event ring buffer for keyboard events ---
 #define MAX_SDL_EVENTS 32
@@ -36,13 +52,67 @@ static void push_sdl_event(int type, int keysym) {
     s_sdl_event_head = next;
 }
 
-// Map PC scancode to SDLK value (0 = unmapped)
+// Map a PC scancode to its SDLK value (0 = unmapped).
+//
+// Scancodes are the only input source that reports both press AND release for
+// every key, so they are the sole source of SDL key events here. The BSP's
+// INPUT_EVENT_TYPE_KEYBOARD (ASCII) stream is deliberately ignored: it fires
+// on press only and auto-repeats while held, which the SDL-era game code reads
+// as a storm of spurious keystrokes.
 static int scancode_to_sdlk(uint32_t sc) {
     switch (sc) {
-        case BSP_INPUT_SCANCODE_ESC:   return SDLK_ESCAPE;
-        case BSP_INPUT_SCANCODE_TAB:   return SDLK_TAB;
-        case BSP_INPUT_SCANCODE_ENTER: return SDLK_RETURN;
-        case BSP_INPUT_SCANCODE_SPACE: return SDLK_SPACE;
+        case BSP_INPUT_SCANCODE_ESC:        return SDLK_ESCAPE;
+        case BSP_INPUT_SCANCODE_TAB:        return SDLK_TAB;
+        case BSP_INPUT_SCANCODE_ENTER:      return SDLK_RETURN;
+        case BSP_INPUT_SCANCODE_BACKSPACE:  return SDLK_BACKSPACE;
+        case BSP_INPUT_SCANCODE_MINUS:      return SDLK_MINUS;
+        case BSP_INPUT_SCANCODE_EQUAL:      return SDLK_PLUS;
+        case BSP_INPUT_SCANCODE_RIGHTBRACE: return SDLK_RIGHTBRACKET;
+
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP:    return SDLK_UP;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN:  return SDLK_DOWN;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT:  return SDLK_LEFT;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT: return SDLK_RIGHT;
+        case BSP_INPUT_SCANCODE_ESCAPED_KPENTER:    return SDLK_RETURN;
+
+        case BSP_INPUT_SCANCODE_A: return SDLK_a;
+        case BSP_INPUT_SCANCODE_B: return SDLK_b;
+        case BSP_INPUT_SCANCODE_C: return SDLK_c;
+        case BSP_INPUT_SCANCODE_D: return SDLK_d;
+        case BSP_INPUT_SCANCODE_E: return SDLK_e;
+        case BSP_INPUT_SCANCODE_F: return SDLK_f;
+        case BSP_INPUT_SCANCODE_G: return SDLK_g;
+        case BSP_INPUT_SCANCODE_H: return SDLK_h;
+        case BSP_INPUT_SCANCODE_I: return SDLK_i;
+        case BSP_INPUT_SCANCODE_J: return SDLK_j;
+        case BSP_INPUT_SCANCODE_K: return SDLK_k;
+        case BSP_INPUT_SCANCODE_L: return SDLK_l;
+        case BSP_INPUT_SCANCODE_M: return SDLK_m;
+        case BSP_INPUT_SCANCODE_N: return SDLK_n;
+        case BSP_INPUT_SCANCODE_O: return SDLK_o;
+        case BSP_INPUT_SCANCODE_P: return SDLK_p;
+        case BSP_INPUT_SCANCODE_Q: return SDLK_q;
+        case BSP_INPUT_SCANCODE_R: return SDLK_r;
+        case BSP_INPUT_SCANCODE_S: return SDLK_s;
+        case BSP_INPUT_SCANCODE_T: return SDLK_t;
+        case BSP_INPUT_SCANCODE_U: return SDLK_u;
+        case BSP_INPUT_SCANCODE_V: return SDLK_v;
+        case BSP_INPUT_SCANCODE_W: return SDLK_w;
+        case BSP_INPUT_SCANCODE_X: return SDLK_x;
+        case BSP_INPUT_SCANCODE_Y: return SDLK_y;
+        case BSP_INPUT_SCANCODE_Z: return SDLK_z;
+
+        case BSP_INPUT_SCANCODE_0: return '0';
+        case BSP_INPUT_SCANCODE_1: return '1';
+        case BSP_INPUT_SCANCODE_2: return '2';
+        case BSP_INPUT_SCANCODE_3: return '3';
+        case BSP_INPUT_SCANCODE_4: return '4';
+        case BSP_INPUT_SCANCODE_5: return '5';
+        case BSP_INPUT_SCANCODE_6: return '6';
+        case BSP_INPUT_SCANCODE_7: return '7';
+        case BSP_INPUT_SCANCODE_8: return '8';
+        case BSP_INPUT_SCANCODE_9: return '9';
+
         default: return 0;
     }
 }
@@ -62,30 +132,38 @@ static void drain_input_queue(void) {
             uint32_t key = (uint32_t)event.args_navigation.key;
 
             switch (key) {
-                case BSP_INPUT_NAVIGATION_KEY_LEFT:  s_left  = pressed; break;
-                case BSP_INPUT_NAVIGATION_KEY_RIGHT: s_right = pressed; break;
-                case BSP_INPUT_NAVIGATION_KEY_UP:    s_up    = pressed; break;
-                case BSP_INPUT_NAVIGATION_KEY_DOWN:  s_down  = pressed; break;
+                case BSP_INPUT_NAVIGATION_KEY_LEFT:
+                    update_button(&s_left, pressed, JOYSTICK_LEFT);
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_RIGHT:
+                    update_button(&s_right, pressed, JOYSTICK_RIGHT);
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_UP:
+                    update_button(&s_up, pressed, JOYSTICK_UP);
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_DOWN:
+                    update_button(&s_down, pressed, JOYSTICK_DOWN);
+                    break;
 
                 case BSP_INPUT_NAVIGATION_KEY_SPACE_M:
                 case BSP_INPUT_NAVIGATION_KEY_SPACE_L:
-                    if (pressed && !s_jump_pressed) s_jump_pressed = true;
-                    else if (!pressed) s_jump_pressed = false;
+                case BSP_INPUT_NAVIGATION_KEY_SPACE_R:
+                    // The space bars report no scancode, so synthesise the SDL
+                    // key events the game expects for SDLK_SPACE here.
+                    update_button(&s_jump_pressed, pressed, JOYSTICK_JUMP);
+                    push_sdl_event(pressed ? SDL_KEYDOWN : SDL_KEYUP, SDLK_SPACE);
                     break;
 
                 case BSP_INPUT_NAVIGATION_KEY_RETURN:
-                    if (pressed && !s_action_pressed) s_action_pressed = true;
-                    else if (!pressed) s_action_pressed = false;
+                    update_button(&s_action_pressed, pressed, JOYSTICK_ACTION);
                     break;
 
                 case BSP_INPUT_NAVIGATION_KEY_F1:
-                    if (pressed) s_pause_pressed = true;
-                    else s_pause_pressed = false;
+                    update_button(&s_pause_pressed, pressed, JOYSTICK_PAUSE);
                     break;
 
                 case BSP_INPUT_NAVIGATION_KEY_F2:
-                    if (pressed && !s_turbo_pressed) s_turbo_pressed = true;
-                    else if (!pressed) s_turbo_pressed = false;
+                    update_button(&s_turbo_pressed, pressed, JOYSTICK_TURBO);
                     break;
 
                 default:
@@ -99,17 +177,9 @@ static void drain_input_queue(void) {
             if (sdlk) {
                 push_sdl_event(released ? SDL_KEYUP : SDL_KEYDOWN, sdlk);
             }
-        } else if (event.type == INPUT_EVENT_TYPE_KEYBOARD) {
-            // ASCII key press — generate KEYUP (game checks KEYUP for actions)
-            char c = event.args_keyboard.ascii;
-            if (c >= 'a' && c <= 'z') {
-                push_sdl_event(SDL_KEYUP, (int)c);
-            } else if (c >= 'A' && c <= 'Z') {
-                push_sdl_event(SDL_KEYUP, (int)(c - 'A' + 'a')); // lowercase SDLK
-            } else if (c >= '0' && c <= '9') {
-                push_sdl_event(SDL_KEYUP, (int)c);
-            }
         }
+        // INPUT_EVENT_TYPE_KEYBOARD is intentionally dropped: see
+        // scancode_to_sdlk() above.
     }
 }
 
@@ -128,6 +198,22 @@ Uint32 PAL_GetJoystickMoves(void) {
     if (s_turbo_pressed)  result |= JOYSTICK_TURBO;
 
     return result;
+}
+
+Uint32 PAL_GetJoystickReleases(void) {
+    drain_input_queue();
+    Uint32 edges = s_released_edges;
+    s_released_edges = 0;
+    return edges;
+}
+
+void PAL_InputFlush(void) {
+    // Throw away everything queued and every edge, but keep the level state in
+    // sync with reality by re-reading it from the events we drop.
+    drain_input_queue();
+    s_released_edges = 0;
+    s_sdl_event_head = 0;
+    s_sdl_event_tail = 0;
 }
 
 int PAL_PollEvent(SDL_Event* e) {

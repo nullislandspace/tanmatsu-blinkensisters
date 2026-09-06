@@ -94,6 +94,7 @@
 #include "pal/pal_time.h"
 #include "pal/pal_input.h"
 #include "pal/pal_font.h"
+#include "shared/osdef.h"
 #include "shared/errorhandler.h"
 #include "shared/config.h"
 

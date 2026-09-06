@@ -14,6 +14,7 @@
 #include "sound.h"
 #include "joystick.h"
 #include <string.h>
+#include <strings.h>
 #include "drawprimitives.h"
 #include "blending.h"
 #include "extractmetabmf.h"
@@ -57,7 +58,7 @@ bool menuDisplay() {
 		max = 6;
 	}
 	bool menuRunning = true;
-	bool joystickIdle = false;
+	flushJoystick();
 
 	soundStartMusic("ADDON/LostPixels/menuMusic.mp3", true);
 	while(menuRunning) {
@@ -83,12 +84,11 @@ bool menuDisplay() {
 
 		BS_Flip(gScreen); /* Update whole screen */
 
-		// Handle Joystick
-		Uint32 joymove = getJoystickMoves();
-		if(joymove == JOYSTICK_NONE) {
-			joystickIdle = true;
-		}
-		if(joystickIdle && joymove != JOYSTICK_NONE) {
+		// Handle Joystick. Act on RELEASE, not press: firing on the press left
+		// this key's release queued for whatever screen the action opened, and
+		// that screen consumed it as its own input.
+		Uint32 joymove = getJoystickReleases();
+		if(joymove != JOYSTICK_NONE) {
 			if((joymove & JOYSTICK_UP)) {
 				soundPlayFX(FX_MENU);
 				sel--;
@@ -111,7 +111,6 @@ bool menuDisplay() {
 					}
 				}
 			}
-			joystickIdle = false;
 		}
 
 
@@ -267,7 +266,7 @@ bool menuOnlineDisplay() {
 	fclose(toc);
 
 	bool menuRunning = true;
-	bool joystickIdle = false;
+	flushJoystick();
 	while(menuRunning) {
 		#ifdef DISABLE_BACKGROUND_ART
 		drawrect(0, 0, SCR_WIDTH, SCR_HEIGHT, 0x000000);
@@ -307,12 +306,11 @@ bool menuOnlineDisplay() {
 		}
 		BS_Flip(gScreen); /* Update whole screen */
 
-		// Handle Joystick
-		Uint32 joymove = getJoystickMoves();
-		if(joymove == JOYSTICK_NONE) {
-			joystickIdle = true;
-		}
-		if(joystickIdle && joymove != JOYSTICK_NONE) {
+		// Handle Joystick. Act on RELEASE, not press: firing on the press left
+		// this key's release queued for whatever screen the action opened, and
+		// that screen consumed it as its own input.
+		Uint32 joymove = getJoystickReleases();
+		if(joymove != JOYSTICK_NONE) {
 			if((joymove & JOYSTICK_UP)) {
 				soundPlayFX(FX_MENU);
 				sel--;
@@ -342,7 +340,6 @@ bool menuOnlineDisplay() {
 					menuRunning = false;
 				}
 			}
-			joystickIdle = false;
 		}
 
 
@@ -449,8 +446,24 @@ bool menuAddonDisplay() {
 		fclose(toc);
 	}
 
+	/* LostPixels is the main game, so it always heads the list no matter what
+	   order the addons were installed in. Everything else keeps its file
+	   order. Entry `max` is the "Back" item, so only [1, max) are addons. */
+	for(Uint32 i = 1; i < max; i++) {
+		if(strcasecmp(files[i].fname, "LostPixels") == 0) {
+			if(i > 1) {
+				ADDONTOC lostpixels = files[i];
+				for(Uint32 j = i; j > 1; j--) {
+					files[j] = files[j-1];
+				}
+				files[1] = lostpixels;
+			}
+			break;
+		}
+	}
+
 	bool menuRunning = true;
-	bool joystickIdle = false;
+	flushJoystick();
 
 	while(menuRunning) {
 
@@ -492,12 +505,11 @@ bool menuAddonDisplay() {
 
 		BS_Flip(gScreen); /* Update whole screen */
 
-		// Handle Joystick
-		Uint32 joymove = getJoystickMoves();
-		if(joymove == JOYSTICK_NONE) {
-			joystickIdle = true;
-		}
-		if(joystickIdle && joymove != JOYSTICK_NONE) {
+		// Handle Joystick. Act on RELEASE, not press: firing on the press left
+		// this key's release queued for whatever screen the action opened, and
+		// that screen consumed it as its own input.
+		Uint32 joymove = getJoystickReleases();
+		if(joymove != JOYSTICK_NONE) {
 			if((joymove & JOYSTICK_UP)) {
 				soundPlayFX(FX_MENU);
 				sel--;
@@ -524,7 +536,6 @@ bool menuAddonDisplay() {
 					menuRunning = false;
 				}
 			}
-			joystickIdle = false;
 		}
 
 
@@ -587,7 +598,7 @@ void menuShowNeedHelp() {
 	renderFontHandlerText(70, 140, "Blinkensisters needs more levels\ngraphics, movies, story,\ndocumentation and - fun, of course.\n\nContact the Blinkensisters team:\n<team@blinkensisters.at>\nVisit our website at:\nhttp://www.blinkensisters.at", BS_Color_WHITE, false, false, FONT_textfont_30);
 	BS_Flip(gScreen); /* Update whole screen */
 
-	bool joystickIdle = false;
+	flushJoystick();
 	while(1) {
 		SDL_Delay(50);
 
@@ -602,10 +613,7 @@ void menuShowNeedHelp() {
 					return;
 			}
 		}
-		Uint32 joymove = getJoystickMoves();
-		if(joymove == JOYSTICK_NONE) {
-			joystickIdle = true;
-		} else if(joystickIdle) {
+		if(getJoystickReleases() != JOYSTICK_NONE) {
 			soundPlayFX(FX_MENU);
 			return;
 		}

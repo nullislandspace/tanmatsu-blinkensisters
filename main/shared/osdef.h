@@ -13,6 +13,11 @@
 // strdup replacement
 char* BS_strdup(const char* s);
 
+// Terminate the game and hand control back to the badge launcher. This is the
+// only way this app can "exit": there is no process to leave, and running the
+// libc exit() path from a FreeRTOS task never completes.
+void quitToLauncher(void);
+
 // round() is available in C99/ESP-IDF
 #ifndef round
 #define round(x) floor((x) + 0.5)

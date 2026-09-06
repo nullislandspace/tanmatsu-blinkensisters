@@ -14,8 +14,19 @@ extern "C" {
 // Initialize input system with BSP event queue handle
 void PAL_InputInit(QueueHandle_t input_queue);
 
-// Drain BSP event queue, return current joystick bitmask (JOYSTICK_* values)
+// Drain BSP event queue, return current joystick bitmask (JOYSTICK_* values).
+// This is LEVEL state ("held right now") and is what gameplay movement uses.
 uint32_t PAL_GetJoystickMoves(void);
+
+// Buttons RELEASED since the last call, as a JOYSTICK_* bitmask; the edges are
+// cleared by reading them. Menus and one-shot toggles use this instead of
+// PAL_GetJoystickMoves() so an action fires once, on release, and the release
+// cannot leak into whatever screen the action opened.
+uint32_t PAL_GetJoystickReleases(void);
+
+// Discard all queued key events and pending release edges. Call when switching
+// screens so stale input from the previous screen is not acted on.
+void PAL_InputFlush(void);
 
 // SDL_Event stubs - SDL_PollEvent always returns 0; input via PAL_GetJoystickMoves
 #define SDLK_UP        273
@@ -28,6 +39,7 @@ uint32_t PAL_GetJoystickMoves(void);
 #define SDLK_SPACE     32
 #define SDLK_BACKSPACE 8
 // Printable ASCII keys (SDL uses ASCII values for these)
+#define SDLK_MINUS        45
 #define SDLK_PLUS         43
 #define SDLK_RIGHTBRACKET 93
 #define SDLK_a  97

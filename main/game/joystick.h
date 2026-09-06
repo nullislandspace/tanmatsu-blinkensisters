@@ -94,4 +94,13 @@ void initJoystick();
 void deInitJoystick();
 Uint32 getJoystickMoves();
 
+/* Buttons released since the last call (JOYSTICK_* bitmask), cleared on read.
+   Menus use this so an action fires once, on release: acting on the press left
+   the matching release queued for the screen the action opened, which then ate
+   it as its own input. */
+Uint32 getJoystickReleases();
+
+/* Drop queued key events and pending release edges (use when changing screen). */
+void flushJoystick();
+
 #endif // JOYSTICK_H

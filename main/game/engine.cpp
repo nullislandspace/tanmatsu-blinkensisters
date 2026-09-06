@@ -1014,7 +1014,9 @@ void displayEngine(const char* attrackModeFile)
 			doFGPlayerAction((Uint32)spritex, (Uint32)spritey);
 		}
 
-		if(joymove & JOYSTICK_PAUSE) {
+		// Pause toggles once per keypress, on release: reading the held state
+		// here flipped it again on every frame the key was down.
+		if(getJoystickReleases() & JOYSTICK_PAUSE) {
 			isPauseMode = !isPauseMode;
 		}
 
@@ -1170,7 +1172,12 @@ void displayEngine(const char* attrackModeFile)
 						} else if(strcmp(cheatCode, "quit") == 0) {
 							printf("Trying fast exit....\n");
 							displaymessage(displaymessage_INFO, "Exit using cheat code", 1000);
-							exit(0);
+							/* exit(0) hangs here: there is no process to leave,
+							   and unwinding a FreeRTOS task through the libc
+							   exit path never completes. Hand control back to
+							   the launcher instead, which is how this app is
+							   meant to terminate. */
+							quitToLauncher();
 						} else if(strcmp(cheatCode, "coords") == 0) {
 							displayPlayerCoords = !displayPlayerCoords;
 						} else if(strcmp(cheatCode, "freemode") == 0) {

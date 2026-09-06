@@ -14,3 +14,11 @@ void deInitJoystick() {
 Uint32 getJoystickMoves() {
     return PAL_GetJoystickMoves();
 }
+
+Uint32 getJoystickReleases() {
+    return PAL_GetJoystickReleases();
+}
+
+void flushJoystick() {
+    PAL_InputFlush();
+}

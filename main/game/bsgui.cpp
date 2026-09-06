@@ -58,7 +58,9 @@ bool guiYesNoDialog(const char* line1, const char* line2, bool defaultval) {
      // ** Save currently displayed frame
 	SDL_BlitSurface(gScreen, 0, GUI_Surface, 0);
 	Uint32 blinkcolor;
-	bool joystickIdle = false;
+	// The dialog is opened by a key press, so start from a clean slate: without
+	// this the release of the key that opened it would immediately confirm it.
+	flushJoystick();
 
     bool yesno = defaultval;
     bool dialogRunning = true;
@@ -172,18 +174,14 @@ bool guiYesNoDialog(const char* line1, const char* line2, bool defaultval) {
 			}
 		}
 
-		// Handle Joystick
-		Uint32 joymove = getJoystickMoves();
-		if(joymove == JOYSTICK_NONE) {
-			joystickIdle = true;
-		}
+		// Handle Joystick (on release; see getJoystickReleases())
+		Uint32 joymove = getJoystickReleases();
 		if((joymove & JOYSTICK_ACTION)) {
 			soundPlayFX(FX_MENU);
 			dialogRunning = false;
-		} else if(joystickIdle && joymove != JOYSTICK_NONE) {
+		} else if(joymove != JOYSTICK_NONE) {
 			yesno = !yesno;
 			soundPlayFX(FX_MENU);
-			joystickIdle = false;
 		}
     }
     return yesno;
