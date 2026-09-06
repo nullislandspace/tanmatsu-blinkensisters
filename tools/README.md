@@ -39,6 +39,22 @@ The config format is `COMMAND=value`, one per line, `#` starts a comment:
 A missing `FILE=` source is skipped with a warning rather than failing the
 build, which is worth knowing: an archive can quietly come out short.
 
+## Artwork the hardware can decode
+
+Backgrounds and screens are JPEG, decoded by the ESP32-P4's JPEG unit, which
+is fussier than a software decoder. If you are drawing a level, keep to:
+
+- **Baseline JPEG only.** Progressive is rejected outright — there is no
+  software fallback. (`file yourimage.jpg` says which; re-save with
+  `convert in.jpg -interlace none out.jpg`.)
+- **8-bit samples, 1 or 3 components.**
+- Any size. The engine works around the decoder's "pixel count must be a
+  multiple of 8" rule by trimming one to three pixels off the right and bottom
+  edges, and logs a warning saying so — but a size where `width * height` is
+  already a multiple of 8 avoids the trim entirely.
+
+PNG goes through lodepng in software and has none of these constraints.
+
 ## Editing shipped data
 
 The two tools close the loop without needing the upstream asset tree, since

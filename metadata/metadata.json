@@ -50,6 +50,10 @@
         {
           "source_file": "addons/s23_ivorytower.bmf",
           "target_file": "addons/s23_ivorytower.bmf"
+        },
+        {
+          "source_file": "addons/mz_xmas2007.bmf",
+          "target_file": "addons/mz_xmas2007.bmf"
         }
       ]
     }

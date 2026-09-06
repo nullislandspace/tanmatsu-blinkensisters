@@ -7,9 +7,26 @@ rebuilt or fixed here. See `tools/README.md` for the format and the tools.
     bmfsource/basedata_config      -> sdcard/basedata.bmf
     bmfsource/addons/<name>/config -> sdcard/addons/<name>.bmf
 
-Only the configs are kept, not the artwork: the assets are already inside the
-shipped archives, and `bmfextract` gets them back out. `mz_template` is the
-skeleton for a new addon and is a good starting point for a custom level.
+Only the configs are kept, not the artwork: for everything the game ships, the
+assets are already inside the archives and `bmfextract` gets them back out.
+
+Two configs here have **no shipped archive**, so their artwork is not
+recoverable from this repository and has to come from the upstream tree:
+`mz_template` (the skeleton for a new addon, and still the best starting point
+for a custom level) and `mz_testlevel` (a development test level). Upstream
+builds nine addons; this port ships seven.
+
+## Rebuilding an addon
+
+With the upstream asset tree available:
+
+    cd /home/cavac/src/blinkensisters/ADDONS/mz_xmas2007
+    <port>/tools/bmfcompress META config <port>/sdcard/addons/mz_xmas2007.bmf
+
+That is exactly how `mz_xmas2007.bmf` was produced — it was in the upstream
+`ADDONS` list but had never been built for this port. Check the result with
+`bmfextract list`: the member count should equal the number of `FILE=` lines
+in the config, since bmfcompress does not fail on a missing source.
 
 ## Known discrepancies between config and shipped archive
 

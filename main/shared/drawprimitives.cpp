@@ -196,6 +196,86 @@ static BS_Surface* load_png(const char* path) {
 // --- JPEG loader using ESP32-P4 hardware JPEG decoder ---
 static jpeg_decoder_handle_t s_jpeg_decoder = NULL;
 
+/* What the SOF0 header says, plus where it sits in the bitstream.
+   jpeg_decoder_get_info() reports width, height and a sample_method enum, but
+   the driver's own decode path does not use that enum: jpeg_parse_sof_marker()
+   takes the MCU size straight from the first component's sampling factors
+   (mcux = hi * 8, mcuy = vi * 8). Those two disagree for a single-component
+   picture that still carries 2x2 factors -- LostPixels' level6.jpg is exactly
+   that -- so the padding is read here the same way the driver computes it,
+   rather than inferred from the enum. */
+typedef struct {
+    uint32_t w, h;
+    uint8_t  nf, hi, vi;
+    size_t   sof;      // offset of the 0xFF 0xC0 marker
+} jpeg_sof_t;
+
+static bool parse_sof0(const uint8_t* buf, size_t len, jpeg_sof_t* out) {
+    if (len < 4 || buf[0] != 0xFF || buf[1] != 0xD8) {
+        return false;   // not a JPEG
+    }
+    size_t i = 2;
+    while (i + 4 <= len) {
+        if (buf[i] != 0xFF) { i++; continue; }
+        uint8_t m = buf[i + 1];
+        if (m == 0xFF) { i++; continue; }                  // fill byte
+        if (m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7)) { i += 2; continue; }
+        if (m == 0xD9 || m == 0xDA) { return false; }      // end / scan: no SOF0
+        size_t seglen = ((size_t)buf[i + 2] << 8) | buf[i + 3];
+        if (seglen < 2 || i + 2 + seglen > len) { return false; }
+        if (m == 0xC0) {                                   // baseline SOF0
+            if (seglen < 8 + 3) { return false; }
+            out->sof = i;
+            out->h   = ((uint32_t)buf[i + 5] << 8) | buf[i + 6];
+            out->w   = ((uint32_t)buf[i + 7] << 8) | buf[i + 8];
+            out->nf  = buf[i + 9];
+            out->hi  = (uint8_t)(buf[i + 11] >> 4);
+            out->vi  = (uint8_t)(buf[i + 11] & 0x0F);
+            return out->nf > 0 && out->hi > 0 && out->vi > 0;
+        }
+        i += 2 + seglen;
+    }
+    return false;
+}
+
+/* The hardware rejects any picture whose PIXEL COUNT is not a multiple of
+   eight -- jpeg_parse_sof_marker() bails out with "Picture sizes not divisible
+   by 8 are not supported" on (width * height) % 8. That is a property of the
+   product, not of either side, so ordinary sizes fall foul of it: 1341x900,
+   1475x661 and 794x1123 are all backgrounds we ship.
+
+   Declaring the picture a few pixels smaller in the SOF gets past it. The
+   entropy-coded data is untouched, PROVIDED the smaller size still spans the
+   same number of MCUs -- the scan is one long stream of MCUs, so changing the
+   count desynchronises the decode and yields garbage. The search below
+   therefore holds ceil(w/mcu_w) and ceil(h/mcu_h) fixed, which also leaves the
+   padded output size unchanged, and gives up rather than guessing if nothing
+   fits.
+
+   Checked against libjpeg on the host over every background shipped here: the
+   retained pixels come back identical apart from the final row and column,
+   where chroma upsampling replicates a different edge sample and shifts a
+   channel by at most 4/255. The visible cost is one to three pixels trimmed
+   off the right and bottom of a backdrop. */
+static bool find_hw_crop(uint32_t w, uint32_t h, uint32_t mcu_w, uint32_t mcu_h,
+                         uint32_t* out_w, uint32_t* out_h) {
+    const uint32_t mcus_x = (w + mcu_w - 1u) / mcu_w;
+    const uint32_t mcus_y = (h + mcu_h - 1u) / mcu_h;
+    for (uint32_t budget = 1; budget <= 16; budget++) {
+        for (uint32_t dw = 0; dw <= budget; dw++) {
+            uint32_t dh = budget - dw;
+            if (dw >= w || dh >= h) continue;
+            uint32_t nw = w - dw, nh = h - dh;
+            if (((uint64_t)nw * (uint64_t)nh) % 8u) continue;
+            if ((nw + mcu_w - 1u) / mcu_w != mcus_x) continue;
+            if ((nh + mcu_h - 1u) / mcu_h != mcus_y) continue;
+            *out_w = nw; *out_h = nh;
+            return true;
+        }
+    }
+    return false;
+}
+
 static BS_Surface* load_jpeg(const char* path) {
     if (!s_jpeg_decoder) {
         jpeg_decode_engine_cfg_t eng_cfg = {
@@ -229,39 +309,48 @@ static BS_Surface* load_jpeg(const char* path) {
     fread(inbuf, 1, fsize, f);
     fastclose(f);
 
-    jpeg_decode_picture_info_t info = {};
-    if (jpeg_decoder_get_info(inbuf, (uint32_t)fsize, &info) != ESP_OK) {
-        heap_caps_free(inbuf);
-        ESP_LOGW(TAG, "JPEG: failed to parse header %s", path);
-        return NULL;
-    }
-
-    uint32_t w = info.width;
-    uint32_t h = info.height;
-    if (w == 0 || h == 0) {
+    jpeg_sof_t sof;
+    if (!parse_sof0(inbuf, fsize, &sof) || sof.w == 0 || sof.h == 0) {
         heap_caps_free(inbuf);
         ESP_LOGW(TAG, "JPEG: no baseline SOF0 in %s (progressive?)", path);
         return NULL;
     }
 
-    // The hardware decoder writes whole MCUs, so its output picture is the
-    // image rounded up to the MCU grid -- and the MCU size depends on the
-    // chroma subsampling, which is what the sampling factors in the SOF
-    // encode. Assuming 16x16 for everything (as this used to) gets the output
-    // stride wrong for any 4:4:4 or 4:2:2 image whose width is not a multiple
-    // of 16, and the picture unpacks sheared instead of failing outright.
-    uint32_t mcu_w, mcu_h;
-    switch (info.sample_method) {
-        case JPEG_DOWN_SAMPLING_YUV420: mcu_w = 16; mcu_h = 16; break;
-        case JPEG_DOWN_SAMPLING_YUV422: mcu_w = 16; mcu_h =  8; break;
-        case JPEG_DOWN_SAMPLING_YUV444:
-        case JPEG_DOWN_SAMPLING_GRAY:   mcu_w =  8; mcu_h =  8; break;
-        default:
-            heap_caps_free(inbuf);
-            ESP_LOGW(TAG, "JPEG: unsupported sampling %d in %s",
-                     (int)info.sample_method, path);
-            return NULL;
+    uint32_t w = sof.w;
+    uint32_t h = sof.h;
+
+    // The decoder writes whole MCUs, so its output picture is the image
+    // rounded up to the MCU grid. Take the MCU size from the sampling factors,
+    // which is what the driver itself does.
+    const uint32_t mcu_w = (uint32_t)sof.hi * 8u;
+    const uint32_t mcu_h = (uint32_t)sof.vi * 8u;
+    if (mcu_w == 0 || mcu_h == 0 || mcu_w > 32 || mcu_h > 32) {
+        heap_caps_free(inbuf);
+        ESP_LOGW(TAG, "JPEG: odd sampling %u/%u in %s", sof.hi, sof.vi, path);
+        return NULL;
     }
+
+    // Work around the hardware's "pixel count must be a multiple of 8" rule by
+    // declaring the picture very slightly smaller (see find_hw_crop).
+    if (((uint64_t)w * (uint64_t)h) % 8u) {
+        uint32_t cw = 0, ch = 0;
+        if (!find_hw_crop(w, h, mcu_w, mcu_h, &cw, &ch)) {
+            heap_caps_free(inbuf);
+            ESP_LOGE(TAG, "JPEG: %s is %ux%u; the pixel count is not a multiple "
+                          "of 8 and no crop within the same MCU grid fixes it",
+                     path, (unsigned)w, (unsigned)h);
+            return NULL;
+        }
+        ESP_LOGW(TAG, "JPEG: %s is %ux%u (pixel count not a multiple of 8); "
+                      "decoding as %ux%u",
+                 path, (unsigned)w, (unsigned)h, (unsigned)cw, (unsigned)ch);
+        w = cw; h = ch;
+        inbuf[sof.sof + 5] = (uint8_t)(h >> 8);
+        inbuf[sof.sof + 6] = (uint8_t)(h & 0xFF);
+        inbuf[sof.sof + 7] = (uint8_t)(w >> 8);
+        inbuf[sof.sof + 8] = (uint8_t)(w & 0xFF);
+    }
+
     uint32_t padded_w = ((w + mcu_w - 1u) / mcu_w) * mcu_w;
     uint32_t padded_h = ((h + mcu_h - 1u) / mcu_h) * mcu_h;
     size_t out_buf_size = (size_t)padded_w * padded_h * 3;

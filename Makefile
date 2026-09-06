@@ -63,6 +63,8 @@ badgelink:
 	cd badgelink/tools; ./install.sh
 
 APP_SLUG ?= at.cavac.blinkensisters
+# Kept in step with VERSION in main/shared/globals.h, which names the data dir.
+GAME_VERSION := $(shell sed -n 's/^#define VERSION "\(.*\)"/\1/p' main/shared/globals.h)
 APP_INSTALL_BASE_PATH ?= /sd/apps/
 APP_INSTALL_PATH = $(APP_INSTALL_BASE_PATH)$(APP_SLUG)
 
@@ -103,9 +105,15 @@ installbmf:
 		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
 	done
 	@echo "=== Game data installed ==="
-	@echo "NOTE: the game only unpacks the BMFs once. Delete"
-	@echo "      /sd/blinkensisters/V<version>/.extracted on the device to force"
-	@echo "      re-extraction after changing the data."
+	@echo "NOTE: run 'make resetdata' so the game unpacks the new archives."
+
+# The game unpacks the BMFs once and records it with a marker file, so new or
+# changed data is ignored until the marker goes. Removing it makes the next
+# launch re-extract everything (which takes a minute on the device).
+.PHONY: resetdata
+resetdata:
+	@echo "=== Forcing re-extraction on next launch ==="
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs delete /sd/blinkensisters/V$(GAME_VERSION)/.extracted || true
 
 .PHONY: run
 run:

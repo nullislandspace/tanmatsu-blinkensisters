@@ -3,8 +3,9 @@
 ## Status: Beta test candidate (2026-09-06)
 
 Plays end to end: menu, addon selection, all LostPixels levels, death and
-end screens, highscores, return to launcher. ~25 fps in gameplay. Published
-to the app repository as `at.cavac.blinkensisters` (`make apprepo`).
+end screens, highscores, return to launcher. ~25 fps in gameplay. Seven
+addons. Published to the app repository as `at.cavac.blinkensisters`
+(`make apprepo`).
 
 ---
 
@@ -129,6 +130,47 @@ what happened to `fx_menu.mp3` (below).
 
 ---
 
+## What the hardware JPEG decoder will not do
+
+Six of the shipped backgrounds failed to load, and the two causes are both
+places where the ESP32-P4 decoder is stricter or stranger than it looks.
+Anyone porting image loading to this chip will hit them.
+
+**The pixel count must be a multiple of 8.** `jpeg_parse_sof_marker()` rejects
+a picture on `(width * height) % 8`, logging "Picture sizes not divisible by 8
+are not supported". Note it is the *product*, not either dimension, so
+perfectly ordinary sizes fail: 1341x900, 1475x661, 2431x530, 495x598 and
+794x1123 are all art we ship. `jpeg_decoder_get_info()` does **not** apply the
+rule, so the header parses fine and only `jpeg_decoder_process()` fails.
+
+The loader works around it by rewriting the width and height in the SOF0
+header of its own in-memory copy, shrinking the picture by the smallest amount
+that satisfies the rule. This is safe only while the smaller size still spans
+the same number of MCUs -- the scan is one stream of MCUs, and changing the
+count desynchronises the decode into garbage -- so the search holds
+`ceil(w/mcu_w)` and `ceil(h/mcu_h)` fixed and refuses rather than guessing if
+nothing fits. Checked against libjpeg on the host for every background here:
+the kept pixels come back identical except in the final row and column, where
+chroma upsampling replicates a different edge sample and moves a channel by at
+most 4/255. One to three pixels come off the right and bottom.
+
+**MCU size comes from the sampling factors, not from `sample_method`.** The
+driver's own `jpeg_parse_sof_marker()` computes `mcux = hi * 8`, `mcuy = vi *
+8` from the first component. Deriving it from the `sample_method` enum that
+`jpeg_decoder_get_info()` reports agrees for ordinary files but not for a
+single-component picture that still carries 2x2 sampling factors --
+`JPEG_DOWN_SAMPLING_GRAY` suggests an 8x8 MCU while the driver uses 16x16.
+LostPixels' level6.jpg (3328x952, one component, 2x2) is exactly that: the
+output is padded to 3328x960, the loader expected 3328x952, and the size check
+threw the decode away. The loader now parses the SOF0 itself and uses the
+sampling factors, the same rule the driver uses.
+
+A wrong guess here is not always loud, either -- an earlier version of this
+loader assumed 16x16 for everything, which produced a *sheared* picture rather
+than an error whenever the real MCU was smaller.
+
+---
+
 ## Known issues
 
 ### Player sprites that were never drawn
@@ -209,6 +251,13 @@ someone else's badge.
   bmfcompress skipped the line and no archive ever contained the file. The
   game now falls back to `fx_collect_pixel.mp3`, which is what the line
   intended. Confirmed working on device.
+- Six backgrounds never loaded, killing 24c3 level 1 and LostPixels levels 3,
+  6, 9, 13 and 20 with a fatal image error. Two separate hardware-decoder
+  quirks, both described above.
+- `mz_xmas2007` was missing. It is in the upstream `ADDONS` list with complete
+  artwork (889 files, seven levels, three carols) but had never been built for
+  this port; rebuilt with `bmfcompress` and added, taking the game to seven
+  addons and `sdcard/` to 79 MB.
 - The app icons are the player sprite (frame 0 of `sister_moveright.bmp`),
   green keyed to white. 32 is 1:1 and 64 a nearest-neighbour 2x so both stay
   crisp; only 16 is resampled, with a box filter -- point drops too many
