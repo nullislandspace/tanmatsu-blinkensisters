@@ -81,15 +81,16 @@ install: build
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon32.png ../../metadata/icon32.png
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
-	@echo "Uploading basedata.bmf (this takes a while)..."
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/basedata.bmf ../../sdcard/basedata.bmf
-	@echo "Creating directory $(APP_INSTALL_PATH)/addons..."
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/addons || true
-	@echo "Uploading addon BMFs..."
-	cd badgelink/tools; for f in ../../sdcard/addons/*.bmf; do \
-		echo "  $$(basename $$f)"; \
-		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
-	done
+	@echo "TEMPORARILY SKIPPING BMF upload (already on device, speeds up testing)"
+#	@echo "Uploading basedata.bmf (this takes a while)..."
+#	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/basedata.bmf ../../sdcard/basedata.bmf
+#	@echo "Creating directory $(APP_INSTALL_PATH)/addons..."
+#	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/addons || true
+#	@echo "Uploading addon BMFs..."
+#	cd badgelink/tools; for f in ../../sdcard/addons/*.bmf; do \
+#		echo "  $$(basename $$f)"; \
+#		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
+#	done
 	@echo "=== Installation complete ==="
 
 .PHONY: run

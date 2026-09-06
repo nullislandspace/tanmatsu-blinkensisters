@@ -19,7 +19,7 @@
         "konsool"
       ],
       "revision": 1,
-      "type": "esp32-app",
+      "type": "appfs",
       "executable": "application.bin",
       "assets": [
         {
