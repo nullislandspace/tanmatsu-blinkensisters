@@ -26,3 +26,4 @@ tools/bmfextract
 tools/bmfcompress
 monitor.log
 log.*.txt
+*.swp
