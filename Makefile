@@ -67,6 +67,21 @@ APP_SLUG ?= at.cavac.blinkensisters
 GAME_VERSION := $(shell sed -n 's/^#define VERSION "\(.*\)"/\1/p' main/shared/globals.h)
 APP_INSTALL_BASE_PATH ?= /sd/apps/
 APP_INSTALL_PATH = $(APP_INSTALL_BASE_PATH)$(APP_SLUG)
+# Upload $(1) (local path) to $(2) (badge path) unless the badge already has a
+# file of the same size -- transfers to the badge are slow, and the archives
+# rarely change. A same-size edit would be skipped, so FORCE=1 uploads anyway.
+# Expands to one shell command ending in ';', for use inside a loop.
+define upload_if_changed
+lsize=$$(stat -c %s $(1)); \
+	rsize=$$(./badgelink.sh $(BADGELINK_CONN) fs stat $(2) 2>/dev/null | sed -n 's/^Size: *//p'); \
+	if [ -z "$(FORCE)" ] && [ "$$rsize" = "$$lsize" ]; then \
+		echo "$$(basename $(1)): already on the badge ($$lsize bytes), skipped"; \
+	else \
+		echo "Uploading $$(basename $(1))..."; \
+		./badgelink.sh $(BADGELINK_CONN) fs upload $(2) $(1) || exit 1; \
+	fi;
+endef
+
 # Data files the app ships, straight from metadata.json: the one list that
 # decides what install and apprepo deliver.
 ASSETS = $(shell python3 -c "import json;print(' '.join(x['source_file'] for x in json.load(open('metadata/metadata.json'))['application'][0]['assets']))")
@@ -89,8 +104,7 @@ install: build
 	@# The assets metadata.json declares, as the launcher would install them.
 	@# Only the base data now; addons are downloaded in-game.
 	@cd badgelink/tools; for f in $(ASSETS); do \
-		echo "Uploading $$f..."; \
-		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/$$f ../../sdcard/$$f || exit 1; \
+		$(call upload_if_changed,../../sdcard/$$f,$(APP_INSTALL_PATH)/$$f) \
 	done
 	@echo "=== Installation complete ==="
 	@echo "(Addons are downloaded in-game; see 'make publishaddons'.)"
@@ -99,7 +113,8 @@ install: build
 # with 'make publishaddons'); this uploads archives from sdcard/ straight into
 # the app's folder instead, to try one before publishing it -- the game still
 # unpacks archives found there, and a downloaded copy of the same name wins.
-# Uploads everything (~80 MB, minutes) unless BMF names some:
+# Uploads everything (~80 MB, minutes) unless BMF names some; archives already
+# on the badge at the same size are skipped (FORCE=1 uploads them anyway):
 #   make installbmf BMF="mz_xmas2007"
 #   make installbmf BMF="basedata LostPixels"
 .PHONY: installbmf
@@ -110,8 +125,7 @@ installbmf:
 	cd badgelink/tools; for f in $(if $(BMF),$(foreach b,$(BMF),$(if $(filter basedata,$(b)),../../sdcard/basedata.bmf,../../sdcard/addons/$(b).bmf)),../../sdcard/basedata.bmf ../../sdcard/addons/*.bmf); do \
 		test -f $$f || { echo "no such archive: $$f"; exit 1; }; \
 		case $$(basename $$f) in basedata.bmf) dest=$(APP_INSTALL_PATH)/basedata.bmf;; *) dest=$(APP_INSTALL_PATH)/addons/$$(basename $$f);; esac; \
-		echo "  $$(basename $$f)"; \
-		./badgelink.sh $(BADGELINK_CONN) fs upload $$dest $$f || exit 1; \
+		$(call upload_if_changed,$$f,$$dest) \
 	done
 	@echo "=== Archives uploaded ==="
 

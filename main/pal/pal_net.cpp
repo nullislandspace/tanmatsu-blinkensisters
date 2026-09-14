@@ -109,6 +109,10 @@ static void set_err(char* err, size_t errlen, const char* fmt, ...) {
 }
 
 static esp_http_client_handle_t make_client(const char* url) {
+    ESP_LOGI(TAG, "GET %s (free internal %u, largest %u; free PSRAM %u)", url,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     esp_http_client_config_t cfg = {};
     cfg.url               = url;
     cfg.timeout_ms        = NET_TIMEOUT_MS;

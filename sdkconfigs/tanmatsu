@@ -37,6 +37,10 @@ CONFIG_FATFS_ALLOC_PREFER_EXTRAM=n
 # Not RTC fast memory as heap: small allocations spill into it once internal
 # SRAM is fragmented, and stdio buffers there cannot take SDMMC DMA reads.
 CONFIG_ESP_SYSTEM_ALLOW_RTC_FAST_MEM_AS_HEAP=n
+# TLS in PSRAM. Internal-only allocation left the certificate check without
+# memory while the game held its share of internal SRAM: the handshake failed
+# with -0x4290, RSA public-key operation + MPI allocation failed.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
 CONFIG_SPI_FLASH_SUPPORT_WINBOND_CHIP=y
 CONFIG_USB_HOST_HUBS_SUPPORTED=y
