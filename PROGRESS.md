@@ -128,6 +128,33 @@ Worth knowing: `bmfcompress` **skips a missing source file with a warning**
 rather than failing. An archive can quietly come out short, which is exactly
 what happened to `fx_menu.mp3` (below).
 
+### Self-test
+
+The main menu's **Self-test** loads every level of every addon listed in
+`addons.dat`, runs one physics tick and draws one frame, which between them
+run the level config, the script's init, physics and paint callbacks, and load
+all the artwork. Each level's result goes to the debug console under the
+`selftest` tag, with a summary at the end repeating every level that was not
+clean; a key press stops it between levels.
+
+- **Failures don't end the run.** While it runs, `DIE()` logs, `longjmp`s back
+  to the test (`dieRecoveryPoint` in `errorhandler`), the level's half-built
+  state is torn down, and the next level starts. A hard crash still ends it,
+  but each level logs `loading` first, so the last such line names the level.
+- **Warnings count.** A level can load and still be wrong -- an image that only
+  decodes after trimming, a missing music file -- so the test sits in front of
+  the log output and reports each level's W/E lines, with the first one quoted.
+- **Leaks show.** Free PSRAM, largest block and free internal RAM are logged
+  after each level's cleanup; a steady fall from level to level is a leak.
+
+Making cleanup safe after a failure partway through loading needed some
+fixes that also matter in normal play: `deInitTiles` and the level's tile map
+freed without clearing their pointers, `unloadMonsterSprites` skipped sprites
+loaded before a failure, the level file handle was never closed, and the
+pickups list was never freed (a small leak on every level). A Lua error raised
+outside a protected call used to reach `exit()`, which hangs on this device;
+it now goes through `DIE()`.
+
 ---
 
 ## What the hardware JPEG decoder will not do
@@ -205,9 +232,25 @@ its immediate duplicate peaked near 57 MB on a 32 MB device.
 - `make installbmf` -- the ~70 MB of game data. Only needed on a fresh device
   or after `sdcard/` changes.
 
-The game unpacks the BMFs once and records it with a `.extracted` marker.
-After changing the data, delete `/sd/blinkensisters/V<version>/.extracted` on
-the device or it will keep using what it already unpacked.
+Each archive is unpacked on its own and stamped with
+`/sd/blinkensisters/V<version>/.extracted_<archive>`, holding the archive's
+size, modification time and CRC32. On launch an archive is unpacked again only
+when it no longer matches its stamp, so installing or updating one addon costs
+that addon alone and needs nothing done by hand:
+
+- size differs -- changed
+- size and time match -- unchanged, without reading the file
+- size matches, time differs -- the file is CRC'd; if that matches too (the
+  same file uploaded again) only the stamp is refreshed
+
+The time shortcut is not trusted when the file's timestamp is before 2020,
+which is what a device whose clock was never set writes: every file then has
+the same time, and a same-length fix would go unseen. Those archives are CRC'd
+on every launch instead. `make resetdata` deletes all the stamps to force a
+full unpack.
+
+Not handled: files dropped from a newer version of an archive stay on the SD
+card from the old one.
 
 `metadata.json` sets `external_only`, so the launcher installs to SD card
 only -- the data does not fit in internal flash.

@@ -49,13 +49,15 @@ void loadMonsterSprites() {
 
 
 void unloadMonsterSprites() {
-	if(!monstersLoaded) {
-		return;
-	}
+	/* Free whatever is there rather than trusting monstersLoaded: when a
+	   sprite fails to load under the self-test, the ones before it are loaded
+	   but the flag was never set. */
 	printf("Freeing monster sprites...\n");
 	for(Uint32 i = 0; i < MAX_MONSTER_TYPES; i++) {
 		SDL_FreeSurface(MONSTERSPRITE_Left[i]);
 		SDL_FreeSurface(MONSTERSPRITE_Right[i]);
+		MONSTERSPRITE_Left[i] = 0;
+		MONSTERSPRITE_Right[i] = 0;
 	}
 	monstersLoaded = false;
 }

@@ -11,6 +11,11 @@
 #include "extractmetabmf.h"
 #include "errorhandler.h"
 #include "fastopen.h"
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "esp_rom_crc.h"
+
+static const char* CTAG = "config";
 
 bool startupComplete = false;
 char currentAddonName[PATH_MAX] = "";
@@ -111,7 +116,136 @@ void configStartupComplete() {
     startupComplete = true;
 }
 
-static void configExtractAddons() {
+// ---- Extraction stamps ------------------------------------------------------
+//
+// Each archive gets its own stamp file next to the data it unpacked,
+// V<version>/.extracted_<archive>, recording the size, modification time and
+// CRC32 of the archive it was unpacked from. An archive is unpacked again only
+// when it no longer matches its stamp, so adding or replacing one addon costs
+// that addon alone rather than all ~70 MB.
+//
+// Checking is tiered to keep a normal launch free of reading the archives:
+//   - size differs                       -> changed, unpack
+//   - size and mtime match               -> unchanged
+//   - size matches, mtime differs        -> CRC the file; unpack only if that
+//                                           differs too (a re-upload of the
+//                                           same file just refreshes the stamp)
+// The mtime shortcut is skipped when the clock that wrote the file was never
+// set (a pre-2020 timestamp): every file then carries the same time, and a fix
+// that keeps the length, say a one-character script change, would go unseen.
+
+#define STAMP_MIN_TRUSTED_MTIME 1577836800   // 2020-01-01
+
+typedef struct {
+    long long size;
+    long long mtime;
+    uint32_t  crc;
+} bmf_stamp_t;
+
+static void stampPathFor(const char* bmfpath, char* out, size_t outlen) {
+    const char* base = strrchr(bmfpath, '/');
+    base = base ? base + 1 : bmfpath;
+    snprintf(out, outlen, "%s/V%s/.extracted_%s", TANMATSU_WORK_DIR, VERSION, base);
+}
+
+static bool stampRead(const char* path, bmf_stamp_t* st) {
+    FILE* fh = fastopen(path, "r");
+    if (!fh) return false;
+    unsigned long crc = 0;
+    int n = fscanf(fh, "size=%lld mtime=%lld crc32=%lx", &st->size, &st->mtime, &crc);
+    fastclose(fh);
+    st->crc = (uint32_t)crc;
+    return n == 3;
+}
+
+static void stampWrite(const char* path, const bmf_stamp_t* st) {
+    FILE* fh = fastopen(path, "w");
+    if (!fh) {
+        ESP_LOGW(CTAG, "Cannot write %s; the archive will be unpacked again next launch", path);
+        return;
+    }
+    fprintf(fh, "size=%lld\nmtime=%lld\ncrc32=%08lx\n",
+            st->size, st->mtime, (unsigned long)st->crc);
+    fastclose(fh);
+}
+
+static bool fileCrc32(const char* path, uint32_t* out) {
+    FILE* fh = fastopen(path, "rb");
+    if (!fh) return false;
+    const size_t bufsize = 64 * 1024;
+    uint8_t* buf = (uint8_t*)heap_caps_malloc(bufsize, MALLOC_CAP_SPIRAM);
+    if (!buf) {
+        fastclose(fh);
+        return false;
+    }
+    uint32_t crc = 0;
+    size_t n;
+    while ((n = fread(buf, 1, bufsize, fh)) > 0) {
+        crc = esp_rom_crc32_le(crc, buf, n);
+    }
+    bool ok = !ferror(fh);
+    heap_caps_free(buf);
+    fastclose(fh);
+    *out = crc;
+    return ok;
+}
+
+// Unpack bmfpath unless its stamp says this exact file was unpacked already.
+// Returns true when it was unpacked.
+static bool configExtractIfChanged(const char* bmfpath, bool force) {
+    struct stat fst;
+    if (stat(bmfpath, &fst) != 0) {
+        ESP_LOGW(CTAG, "%s: not found", bmfpath);
+        return false;
+    }
+
+    char stamppath[PATH_MAX];
+    stampPathFor(bmfpath, stamppath, sizeof(stamppath));
+
+    bmf_stamp_t now = { (long long)fst.st_size, (long long)fst.st_mtime, 0 };
+    bool haveCrc = false;
+    bmf_stamp_t old;
+
+    if (force) {
+        ESP_LOGI(CTAG, "%s: forced update", bmfpath);
+    } else if (!stampRead(stamppath, &old)) {
+        ESP_LOGI(CTAG, "%s: not unpacked yet", bmfpath);
+    } else if (old.size != now.size) {
+        ESP_LOGI(CTAG, "%s: size changed (%lld -> %lld)", bmfpath, old.size, now.size);
+    } else if (old.mtime == now.mtime && now.mtime >= STAMP_MIN_TRUSTED_MTIME) {
+        ESP_LOGI(CTAG, "%s: unchanged", bmfpath);
+        return false;
+    } else {
+        ESP_LOGI(CTAG, "%s: %s, comparing contents", bmfpath,
+                 now.mtime >= STAMP_MIN_TRUSTED_MTIME ? "timestamp changed"
+                                                      : "clock was not set");
+        haveCrc = fileCrc32(bmfpath, &now.crc);
+        if (haveCrc && now.crc == old.crc) {
+            ESP_LOGI(CTAG, "%s: unchanged (crc32 %08lx)", bmfpath, (unsigned long)now.crc);
+            if (old.mtime != now.mtime) stampWrite(stamppath, &now);
+            return false;
+        }
+        ESP_LOGI(CTAG, "%s: contents changed", bmfpath);
+    }
+
+    // Drop the stamp first, so an unpack cut short (power, a crash) is not
+    // mistaken for a finished one on the next launch.
+    unlink(stamppath);
+    char path[PATH_MAX];
+    strncpy(path, bmfpath, sizeof(path) - 1);
+    path[sizeof(path) - 1] = '\0';
+    if (!extractMetaBMF(path, true)) {
+        return false;
+    }
+    if (!haveCrc && !fileCrc32(bmfpath, &now.crc)) {
+        ESP_LOGW(CTAG, "%s: cannot read it back for its crc32", bmfpath);
+        return true;
+    }
+    stampWrite(stamppath, &now);
+    return true;
+}
+
+static void configExtractAddons(bool force) {
     // Extract BMF files from app path to working dir
     char addondirname[PATH_MAX];
     snprintf(addondirname, sizeof(addondirname), "%s/addons", TANMATSU_APP_PATH);
@@ -126,7 +260,7 @@ static void configExtractAddons() {
         if (!ext || strcmp(ext, ".bmf") != 0) continue;
         char tmp[PATH_MAX], tmp2[PATH_MAX];
         snprintf(tmp, sizeof(tmp), "%s/%s", addondirname, ent->d_name);
-        extractMetaBMF(tmp, true);
+        if (!configExtractIfChanged(tmp, force)) continue;
         strncpy(tmp2, ent->d_name, sizeof(tmp2) - 1);
         tmp2[sizeof(tmp2) - 1] = '\0';
         // Remove .bmf extension
@@ -148,29 +282,15 @@ void configInit(const bool forceUpdate) {
     snprintf(addondir, sizeof(addondir), "%s/V%s/ADDON", TANMATSU_WORK_DIR, VERSION);
     mkdir(addondir, S_IRWXU);
 
-    // Check if extraction already done (marker file)
-    char markerpath[PATH_MAX];
-    snprintf(markerpath, sizeof(markerpath), "%s/.extracted", verdir);
-    FILE* marker = fastopen(markerpath, "r");
-    if (marker && !forceUpdate) {
-        fastclose(marker);
-        printf("Data already extracted, skipping BMF extraction\n");
-        return;
-    }
-    if (marker) fastclose(marker);
+    // The single all-or-nothing marker the stamps replaced. Nothing reads it
+    // any more; remove it so it does not suggest otherwise.
+    char legacymarker[PATH_MAX];
+    snprintf(legacymarker, sizeof(legacymarker), "%s/.extracted", verdir);
+    unlink(legacymarker);
 
-    // Extract basedata
     char basedatapath[PATH_MAX];
     snprintf(basedatapath, sizeof(basedatapath), "%s/basedata.bmf", TANMATSU_APP_PATH);
-    extractMetaBMF(basedatapath, true);
+    configExtractIfChanged(basedatapath, forceUpdate);
 
-    // Extract addon BMFs
-    configExtractAddons();
-
-    // Write marker file
-    marker = fastopen(markerpath, "w");
-    if (marker) {
-        fprintf(marker, "%s\n", VERSION);
-        fastclose(marker);
-    }
+    configExtractAddons(forceUpdate);
 }

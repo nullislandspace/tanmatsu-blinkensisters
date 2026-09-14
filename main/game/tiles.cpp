@@ -30,6 +30,7 @@ void initTiles(const char *fname) {
 
 void deInitTiles() {
 	SDL_FreeSurface(TILES_Surface);
+	TILES_Surface = 0;
 }
 
 void paintSingleTile(const Uint32 num, const Sint32 x, const Sint32 y) {

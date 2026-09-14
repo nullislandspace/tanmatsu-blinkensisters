@@ -35,6 +35,17 @@ Uint32 debugLineStackCount[LUABINDINGTYPE_MAX];
 lua_State *debugableScript[LUABINDINGTYPE_MAX];
 lua_State *doLuaStackTrace = 0;
 
+// Lua reports an error raised outside any protected call -- a LUADIE from code
+// that runs outside lua_pcall, such as reading a level config's globals -- by
+// calling the panic function and then exit(), which on this device hangs.
+// Route it through DIE instead: that does not return either, but it shows the
+// error and ends in the launcher, or under the self-test moves on.
+static int blLuaPanic(lua_State* L) {
+	const char* msg = lua_tostring(L, -1);
+	DIE(ERROR_LUACALL, msg ? msg : "unprotected Lua error");
+	return 0;
+}
+
 
 void blLuaInit(char *fname, LUABINDINGTYPE luatype)
 {
@@ -47,6 +58,7 @@ void blLuaInit(char *fname, LUABINDINGTYPE luatype)
 	if(!blLUA) {
 		DIE(ERROR_LUAINIT, "");
 	}
+	lua_atpanic(blLUA, blLuaPanic);
 
 	// Load libraries
 	luaopen_base(blLUA);

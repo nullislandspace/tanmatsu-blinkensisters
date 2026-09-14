@@ -606,6 +606,24 @@ void engineMinimalPhysics() {
 	
 }
 
+/* Exactly one physics tick, and one frame drawn without being shown, for the
+   self-test: both run the level's scripts the way a real frame does, but
+   without renderEngine()'s pacing, which would wait for the tick to be due. */
+void engineSelfTestPhysics() {
+	gLastTick = BS_GetTicks();
+	if(!hasScriptPhysics) {
+		engineFullPhysics();
+	} else {
+		engineMinimalPhysics();
+	}
+}
+
+void engineSelfTestRender() {
+	allowLUAPaint = true;
+	engineDoRender(COLOR3D_NONE);
+	allowLUAPaint = false;
+}
+
 void renderEngine() {
 
 	errorMessage[0] = 0;

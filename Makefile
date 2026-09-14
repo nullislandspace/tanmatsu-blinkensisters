@@ -105,15 +105,17 @@ installbmf:
 		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
 	done
 	@echo "=== Game data installed ==="
-	@echo "NOTE: run 'make resetdata' so the game unpacks the new archives."
 
-# The game unpacks the BMFs once and records it with a marker file, so new or
-# changed data is ignored until the marker goes. Removing it makes the next
-# launch re-extract everything (which takes a minute on the device).
+# The game stamps each archive it unpacks with its size, time and CRC32, and on
+# launch unpacks only the ones that no longer match -- so after installbmf there
+# is nothing to do. This is for forcing it anyway: it deletes every stamp, and
+# the next launch unpacks everything (which takes a few minutes on the device).
 .PHONY: resetdata
 resetdata:
 	@echo "=== Forcing re-extraction on next launch ==="
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs delete /sd/blinkensisters/V$(GAME_VERSION)/.extracted || true
+	cd badgelink/tools; for f in basedata.bmf $$(cd ../../sdcard/addons && ls *.bmf); do \
+		./badgelink.sh $(BADGELINK_CONN) fs delete /sd/blinkensisters/V$(GAME_VERSION)/.extracted_$$f || true; \
+	done
 
 .PHONY: run
 run:

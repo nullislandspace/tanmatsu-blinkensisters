@@ -20,6 +20,8 @@ Uint32 BS_GetTicks();
 void engineDoRender(COLOR3D mode3D);
 void renderEngine();
 void engineFullPhysics();
+void engineSelfTestPhysics();
+void engineSelfTestRender();
 
 extern double spritex, spritey, spritevx, spritevy, blinkbright;
 extern Uint32 spriterelx;

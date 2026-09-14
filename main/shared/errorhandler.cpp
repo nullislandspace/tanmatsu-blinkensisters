@@ -19,6 +19,8 @@ static const char* ETAG = "bserror";
 #endif
 
 bool displayGraphicalErrors = false;
+jmp_buf* dieRecoveryPoint = NULL;
+char dieRecoveryMessage[512];
 
 #define PARSE_ERRORCODES
 char* getErrorText(Uint32 errorcode) {
@@ -34,6 +36,16 @@ char* getErrorText(Uint32 errorcode) {
 void dieWithError(Uint32 errorcode, const char* extrainfo, Uint32 linenum, const char* filename) {
     ESP_LOGE(ETAG, "FATAL ERROR %d: %s | %s | %s:%d",
              errorcode, getErrorText(errorcode), extrainfo, filename, linenum);
+    if (dieRecoveryPoint) {
+        snprintf(dieRecoveryMessage, sizeof(dieRecoveryMessage), "error %d: %s | %s | %s:%d",
+                 errorcode, getErrorText(errorcode), extrainfo ? extrainfo : "",
+                 filename, linenum);
+        // Disarm before jumping, so a DIE() during the caller's cleanup ends
+        // the program rather than jumping into a frame that has returned.
+        jmp_buf* target = dieRecoveryPoint;
+        dieRecoveryPoint = NULL;
+        longjmp(*target, 1);
+    }
     // Show on screen if possible
     if (gScreen) {
         SDL_FillRect(gScreen, NULL, 0xff000000); // black bg

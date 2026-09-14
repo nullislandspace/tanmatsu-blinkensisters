@@ -50,6 +50,7 @@ void initLevel(Uint32 level) {
 	lhandle.numPixels = 0;
 	lhandle.dlist = 0;
 	lhandle.pixels = 0;
+	lhandle.tiles2d = 0;
 	lhandle.numMonsters = 0;
 	lhandle.monsters = 0;
 	lhandle.hasMagicTiles = false;
@@ -183,6 +184,7 @@ void initLevel(Uint32 level) {
 			lhandle.height = y;
 		}
 	}
+	fclose(fh);
 
 
 	initBackground(lhandle.bgfile);
@@ -230,6 +232,7 @@ void deInitLevel() {
 	deInitSoundFXLua();
 
 	free(lhandle.tiles2d);
+	lhandle.tiles2d = 0;
 
 
     blLuaDeInit();
@@ -249,6 +252,15 @@ void deInitLevel() {
 		tthis = tnext;
 	}
 	lhandle.dlist = 0;
+
+	// The pickups list was never freed, leaking a little on every level.
+	tnext = lhandle.pixels;
+	while(tnext) {
+		tthis = tnext;
+		tnext = tthis->next;
+		free(tthis);
+	}
+	lhandle.pixels = 0;
 
 	freeMonsters();
 	soundStopMusic();

@@ -69,6 +69,7 @@ everything is already inside the archive:
 The original configs are preserved in `bmfsource/` for reference — see
 `bmfsource/README.md`.
 
-**After changing data**, delete `/sd/blinkensisters/V<version>/.extracted` on
-the device. The game unpacks each archive once and records that it has done
-so; without removing the marker it will keep using what it unpacked before.
+**After changing data** there is nothing to do on the device. The game stamps
+each archive it unpacks with its size, time and CRC32, and unpacks again any
+archive that no longer matches (details in `PROGRESS.md`, "Installing").
+`make resetdata` forces a full unpack if one is ever needed.
