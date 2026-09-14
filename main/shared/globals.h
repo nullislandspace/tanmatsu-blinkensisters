@@ -19,7 +19,7 @@
 #define TANMATSU_WORK_DIR "/sd/blinkensisters"
 
 // Version
-#define VERSION "0.5.4"
+#define VERSION "1.0.0"
 
 // Release mode
 #define CAVAC_RELEASEMODE 1
