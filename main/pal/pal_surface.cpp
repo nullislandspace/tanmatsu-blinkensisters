@@ -10,7 +10,10 @@ static const char* TAG = "pal_surface";
 #define BS_SURFACE_ALIGN 128
 
 BS_Surface* BS_CreateSurface(Sint32 w, Sint32 h) {
-    BS_Surface* s = (BS_Surface*)heap_caps_malloc(sizeof(BS_Surface), MALLOC_CAP_INTERNAL);
+    // The header is small but there is one per sprite frame, and addons load
+    // hundreds; internal RAM is the scarce kind, so it goes in PSRAM too.
+    BS_Surface* s = (BS_Surface*)heap_caps_malloc(sizeof(BS_Surface), MALLOC_CAP_SPIRAM);
+    if (!s) s = (BS_Surface*)heap_caps_malloc(sizeof(BS_Surface), MALLOC_CAP_DEFAULT);
     if (!s) {
         ESP_LOGE(TAG, "Failed to alloc BS_Surface struct");
         return NULL;

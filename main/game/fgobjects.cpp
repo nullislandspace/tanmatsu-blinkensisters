@@ -17,6 +17,7 @@
 #include "bl_lua.h"
 #include "sound.h"
 #include "playersprite.h"
+#include "esp_heap_caps.h"
 #include "convert.h"
 #include "levelhandler.h"
 
@@ -25,6 +26,19 @@
 Uint32 fgobjcnt = 0;
 Uint32 fgobjgfxcnt = 0;
 Uint32 fgobjanimcnt = 0;
+
+/* Objects, graphics and animations are allocated in PSRAM. Each one is a
+   kilobyte or more -- a graphic keeps a 1000-byte filename, an object two
+   1000-byte callback names -- and a plain malloc of that size is served from
+   internal RAM first. mz_xmas2007 loads 840 animation frames and places 300+
+   objects per level, which asked internal SRAM for well over a megabyte on a
+   chip that has 768 KB; long before that ran out, the rest of the system
+   (stdio buffers, surface headers) was failing to find memory. free() releases
+   heap_caps allocations, so the frees stay as they are. */
+static void* fgAlloc(size_t size) {
+	void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+	return p ? p : malloc(size);
+}
 
 FGOBJS *fgObjs[MAX_FGOBJECTS];
 FGGFX *fgGFX[MAX_FGOBJECTGFX];
@@ -119,7 +133,7 @@ Uint32 addFGObjGFX(const char *fname, bool ignoreLoadError) {
         }
     }
 
-    FGGFX *tmp = (FGGFX *)malloc(sizeof(FGGFX));
+    FGGFX *tmp = (FGGFX *)fgAlloc(sizeof(FGGFX));
     if(!tmp) {
         DIE(ERROR_MALLOC, "addFGObjGFX()");
     }
@@ -146,7 +160,7 @@ Uint32 addFGObjAnim(const char *templfname, const Uint32 startnum, const Uint32 
         }
     }
 
-    FGANIMS *tmp = (FGANIMS *)malloc(sizeof(FGANIMS));
+    FGANIMS *tmp = (FGANIMS *)fgAlloc(sizeof(FGANIMS));
     if(!tmp) {
         DIE(ERROR_MALLOC, "addFGObjAnim()");
     }
@@ -241,7 +255,7 @@ Uint32 duplicateFGObjAnim(const Uint32 obj) {
         }
     }
 	
-    FGANIMS *tmp = (FGANIMS *)malloc(sizeof(FGANIMS));
+    FGANIMS *tmp = (FGANIMS *)fgAlloc(sizeof(FGANIMS));
     if(!tmp) {
         DIE(ERROR_MALLOC, "addFGObjAnim()");
     }
@@ -437,7 +451,7 @@ Uint32 addFGObj(const Uint32 gfxobj, const Sint32 x, const Sint32 y, const bool 
         }
     }
 	
-    FGOBJS *tmp = (FGOBJS *)malloc(sizeof(FGOBJS));
+    FGOBJS *tmp = (FGOBJS *)fgAlloc(sizeof(FGOBJS));
     if(!tmp) {
         DIE(ERROR_MALLOC, "addFGObj()");
     }
