@@ -6,11 +6,11 @@
       "name": "Lost Pixels",
       "description": "Hunt for The Lost Pixels",
       "file": "LostPixels.bmf",
-      "version": 1,
+      "version": 2,
       "min_game_version": "0.5.4",
-      "sha256": "0ad84f648cf8df016505f8e035c6734224242e7ada176a9b3300ed4351cdb633",
-      "size": 43089690,
-      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-LostPixels-v1/LostPixels.bmf"
+      "sha256": "ba67b08ae13e49861d19cdb0342f8e7d0a248a65aefc25683098e7487b1944b7",
+      "size": 43086341,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-LostPixels-v2/LostPixels.bmf"
     },
     {
       "id": "24c3",
@@ -28,11 +28,11 @@
       "name": "Icy",
       "description": "by Mithodin",
       "file": "icy.bmf",
-      "version": 1,
+      "version": 2,
       "min_game_version": "0.5.4",
-      "sha256": "c76b1d948ce40c7d275a76fd43557bc75e8e624d2e2b25e0902618d886379e2a",
-      "size": 7190210,
-      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-Icy-v1/icy.bmf"
+      "sha256": "f8355c09eae35c317a99742d5065f6d5122bb33e3487fd29ffb01a6939490097",
+      "size": 7186861,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-Icy-v2/icy.bmf"
     },
     {
       "id": "MZ_Escape",
