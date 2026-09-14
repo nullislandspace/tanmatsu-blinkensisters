@@ -120,7 +120,15 @@ static void game_task(void* arg) {
     bsp_device_restart_to_launcher();
 }
 
+// For debugging startup: launching from the launcher resets the USB serial
+// connection, and `make monitor` needs a while to reconnect. Uncomment to hold
+// off long enough for the whole startup to reach the log.
+//#define STARTUP_LOG_DELAY_MS 10000
+
 extern "C" void app_main(void) {
+#ifdef STARTUP_LOG_DELAY_MS
+    vTaskDelay(pdMS_TO_TICKS(STARTUP_LOG_DELAY_MS));
+#endif
     gpio_install_isr_service(0);
 
     // NVS
