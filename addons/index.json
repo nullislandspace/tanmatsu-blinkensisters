@@ -1,5 +1,16 @@
 {
   "format": 1,
+  "basedata": {
+    "id": "basedata",
+    "name": "Game data",
+    "description": "Menus, sounds and screens shared by every addon",
+    "file": "basedata.bmf",
+    "version": 1,
+    "min_game_version": "1.0.0",
+    "sha256": "9392baa09ecc3876118cadfc4e25e92e64fab279f4da6a580999f0868cebabc5",
+    "size": 1775788,
+    "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/basedata-v1/basedata.bmf"
+  },
   "addons": [
     {
       "id": "LostPixels",
