@@ -117,6 +117,17 @@ resetdata:
 		./badgelink.sh $(BADGELINK_CONN) fs delete /sd/blinkensisters/V$(GAME_VERSION)/.extracted_$$f || true; \
 	done
 
+# Addon downloads: publish changed archives as GitHub releases and update
+# addons/index.json (see tools/publish-addons.py). Prints the plan unless
+# PUBLISH=1; pass --add/--remove through ADDONARGS.
+#   make publishaddons
+#   make publishaddons PUBLISH=1
+#   make publishaddons PUBLISH=1 ADDONARGS="--add sdcard/addons/icy.bmf"
+.PHONY: publishaddons
+publishaddons:
+	@$(MAKE) -C tools >/dev/null
+	tools/publish-addons.py $(if $(PUBLISH),--publish) $(ADDONARGS)
+
 .PHONY: run
 run:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) start $(APP_SLUG)

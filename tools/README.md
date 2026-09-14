@@ -39,6 +39,37 @@ The config format is `COMMAND=value`, one per line, `#` starts a comment:
 A missing `FILE=` source is skipped with a warning rather than failing the
 build, which is worth knowing: an archive can quietly come out short.
 
+## publish-addons.py
+
+Publishes addon archives for download and maintains `addons/index.json`, the
+list the game will read to find them. Each addon version is its own GitHub
+release, tagged `addon-<id>-v<version>` and never replaced, so a URL in any
+index ever published keeps pointing at the same bytes.
+
+    make publishaddons                    # dry run: print what would happen
+    make publishaddons PUBLISH=1          # do it
+    make publishaddons PUBLISH=1 ADDONARGS="--add sdcard/addons/icy.bmf"
+    make publishaddons PUBLISH=1 ADDONARGS="--remove MZ_Pnog"
+
+The usual loop is: change an archive, commit and push it, `make
+publishaddons PUBLISH=1`. The script SHA-256s every archive in the index; only
+the ones that changed get a version bump and a release, then the index is
+committed and pushed. Name, description and id come from the archive's own
+`REGISTERADDON` record, so there is nothing to type in.
+
+It refuses to run with uncommitted archives or index, or with the branch out
+of sync with origin, and creates every release and checks GitHub's SHA-256 of
+each upload before it touches the index. A run that fails partway can be
+repeated; an upload that arrived corrupt stops it with the command to delete
+that release. Addon releases are marked not-latest, so they never displace a
+game release as the repository's "Latest". Removing an addon only drops its
+index entry; its releases stay, for badges still holding an older index.
+
+Index entry fields: `id` (the addon directory), `name`, `description`,
+`file`, `version`, `min_game_version` (the game version current when the addon
+was added, unless `--min-game-version` says otherwise), `sha256`, `size`,
+`url`.
+
 ## Artwork the hardware can decode
 
 Backgrounds and screens are JPEG, decoded by the ESP32-P4's JPEG unit, which
