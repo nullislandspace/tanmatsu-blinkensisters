@@ -2,10 +2,9 @@
 
 #include <stdio.h>
 
-// Fast file I/O - automatically uses DMA-capable buffers for /sd and /int paths
-// When CONFIG_FATFS_USE_FASTOPEN is enabled, files opened with paths starting
-// with "/sd" or "/int" will use internal DMA-capable RAM for stdio buffers,
-// improving throughput by avoiding PSRAM cache synchronization overhead.
+// fopen/fclose for files on /sd and /int with a cache-aligned PSRAM stdio
+// buffer, which the SDMMC driver can read into directly and which takes no
+// internal RAM (see fastopen.c). Close with fastclose(), which frees it.
 
 #ifdef __cplusplus
 extern "C" {

@@ -1,6 +1,7 @@
 #include "globals.h"
 #include "drawprimitives.h"
 #include "errorhandler.h"
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 #include <strings.h>
@@ -38,6 +39,21 @@ Uint32 SDL_color_to_Uint32(SDL_Color sdc) {
     return BS_MapRGBA(sdc.r, sdc.g, sdc.b, 0xff);
 }
 
+// Size of an open file, or -1 after logging why not. A failed read inside
+// fseek() leaves ftell() at -1, which the loaders used to turn into a 4 GB
+// size and then report as running out of memory -- hiding the real error.
+static long file_size_or_log(FILE* f, const char* kind, const char* path) {
+    long size = -1;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        size = ftell(f);
+    }
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        ESP_LOGE(TAG, "%s: read error on %s (errno %d)", kind, path, errno);
+        return -1;
+    }
+    return size;
+}
+
 // --- BMP loader (24-bit and 32-bit uncompressed) ---
 static BS_Surface* load_bmp(const char* path) {
     FILE* f = fastopen(path, "rb");
@@ -48,7 +64,12 @@ static BS_Surface* load_bmp(const char* path) {
 
     // File header: 14 bytes
     uint8_t fhdr[14];
-    if (fread(fhdr, 1, 14, f) != 14 || fhdr[0] != 'B' || fhdr[1] != 'M') {
+    if (fread(fhdr, 1, 14, f) != 14) {
+        ESP_LOGE(TAG, "BMP: read error on %s (errno %d)", path, errno);
+        fastclose(f);
+        return NULL;
+    }
+    if (fhdr[0] != 'B' || fhdr[1] != 'M') {
         fastclose(f);
         ESP_LOGW(TAG, "BMP: bad magic %s", path);
         return NULL;
@@ -91,14 +112,21 @@ static BS_Surface* load_bmp(const char* path) {
         if (num_colors == 0) num_colors = 256;
         if (num_colors > 256) num_colors = 256;
         // Palette starts right after the DIB header (offset 14+40=54)
-        fseek(f, 14 + 40, SEEK_SET);
-        fread(palette, 4, num_colors, f);
+        if (fseek(f, 14 + 40, SEEK_SET) != 0 || fread(palette, 4, num_colors, f) != num_colors) {
+            fastclose(f);
+            ESP_LOGE(TAG, "BMP: read error on %s palette (errno %d)", path, errno);
+            return NULL;
+        }
     }
 
     int bytes_pp = (bpp == 8) ? 1 : bpp / 8;
     int row_stride = ((w * bytes_pp + 3) / 4) * 4;
 
-    fseek(f, (long)px_offset, SEEK_SET);
+    if (fseek(f, (long)px_offset, SEEK_SET) != 0) {
+        fastclose(f);
+        ESP_LOGE(TAG, "BMP: read error on %s (errno %d)", path, errno);
+        return NULL;
+    }
     size_t px_size = (size_t)row_stride * (size_t)h;
     uint8_t* px = (uint8_t*)heap_caps_malloc(px_size, MALLOC_CAP_SPIRAM);
     if (!px) {
@@ -154,17 +182,25 @@ static BS_Surface* load_png(const char* path) {
         ESP_LOGW(TAG, "PNG: cannot open %s", path);
         return NULL;
     }
-    fseek(f, 0, SEEK_END);
-    size_t fsize = (size_t)ftell(f);
-    fseek(f, 0, SEEK_SET);
+    long fsize_l = file_size_or_log(f, "PNG", path);
+    if (fsize_l <= 0) {
+        fastclose(f);
+        return NULL;
+    }
+    size_t fsize = (size_t)fsize_l;
 
     uint8_t* filedata = (uint8_t*)heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM);
     if (!filedata) {
         fastclose(f);
-        ESP_LOGE(TAG, "PNG: OOM reading %s", path);
+        ESP_LOGE(TAG, "PNG: OOM reading %s (%u bytes)", path, (unsigned)fsize);
         return NULL;
     }
-    fread(filedata, 1, fsize, f);
+    if (fread(filedata, 1, fsize, f) != fsize) {
+        ESP_LOGE(TAG, "PNG: read error on %s (errno %d)", path, errno);
+        heap_caps_free(filedata);
+        fastclose(f);
+        return NULL;
+    }
     fastclose(f);
 
     // lodepng_decode32 outputs RGBA bytes; allocation goes to PSRAM via custom allocators
@@ -294,9 +330,12 @@ static BS_Surface* load_jpeg(const char* path) {
         ESP_LOGW(TAG, "JPEG: cannot open %s", path);
         return NULL;
     }
-    fseek(f, 0, SEEK_END);
-    size_t fsize = (size_t)ftell(f);
-    fseek(f, 0, SEEK_SET);
+    long fsize_l = file_size_or_log(f, "JPEG", path);
+    if (fsize_l <= 0) {
+        fastclose(f);
+        return NULL;
+    }
+    size_t fsize = (size_t)fsize_l;
 
     jpeg_decode_memory_alloc_cfg_t in_cfg  = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
     size_t in_alloc = 0;
@@ -306,7 +345,12 @@ static BS_Surface* load_jpeg(const char* path) {
         ESP_LOGE(TAG, "JPEG: OOM input buffer %s", path);
         return NULL;
     }
-    fread(inbuf, 1, fsize, f);
+    if (fread(inbuf, 1, fsize, f) != fsize) {
+        ESP_LOGE(TAG, "JPEG: read error on %s (errno %d)", path, errno);
+        heap_caps_free(inbuf);
+        fastclose(f);
+        return NULL;
+    }
     fastclose(f);
 
     jpeg_sof_t sof;
@@ -318,6 +362,21 @@ static BS_Surface* load_jpeg(const char* path) {
 
     uint32_t w = sof.w;
     uint32_t h = sof.h;
+
+    // A one-component (grayscale) picture must be decoded to GRAY: the driver
+    // refuses RGB output for it outright (ESP_ERR_NOT_SUPPORTED). And a single
+    // component is always coded one 8x8 block per MCU, whatever sampling
+    // factors the header carries (T.81 A.2.2), but the driver sizes MCUs and
+    // DMA blocks from those factors -- so a gray image stored with 2x2 factors
+    // (LostPixels' level6.jpg) is patched to say 1x1, which describes the
+    // same scan data. Checked on the host: both headers decode identically.
+    const bool gray = (sof.nf == 1);
+    if (gray && (sof.hi != 1 || sof.vi != 1)) {
+        inbuf[sof.sof + 11] = 0x11;
+        sof.hi = 1;
+        sof.vi = 1;
+    }
+    const uint32_t bytes_pp = gray ? 1u : 3u;
 
     // The decoder writes whole MCUs, so its output picture is the image
     // rounded up to the MCU grid. Take the MCU size from the sampling factors,
@@ -353,7 +412,7 @@ static BS_Surface* load_jpeg(const char* path) {
 
     uint32_t padded_w = ((w + mcu_w - 1u) / mcu_w) * mcu_w;
     uint32_t padded_h = ((h + mcu_h - 1u) / mcu_h) * mcu_h;
-    size_t out_buf_size = (size_t)padded_w * padded_h * 3;
+    size_t out_buf_size = (size_t)padded_w * padded_h * bytes_pp;
 
     ESP_LOGI(TAG, "JPEG: %s %" PRIu32 "x%" PRIu32 " (mcu %" PRIu32 "x%" PRIu32
                   ", padded %" PRIu32 "x%" PRIu32 "), need %u bytes",
@@ -380,7 +439,7 @@ static BS_Surface* load_jpeg(const char* path) {
     }
 
     jpeg_decode_cfg_t decode_cfg = {
-        .output_format = JPEG_DECODE_OUT_FORMAT_RGB888,
+        .output_format = gray ? JPEG_DECODE_OUT_FORMAT_GRAY : JPEG_DECODE_OUT_FORMAT_RGB888,
         .rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,
         .conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
     };
@@ -398,7 +457,7 @@ static BS_Surface* load_jpeg(const char* path) {
     // The decoder reports the size it actually produced. If that disagrees
     // with the padding worked out above, the unpack stride below would be
     // wrong, so refuse rather than draw a sheared picture.
-    size_t expect = (size_t)padded_w * padded_h * 3;
+    size_t expect = (size_t)padded_w * padded_h * bytes_pp;
     if (out_size != expect) {
         ESP_LOGW(TAG, "JPEG: %s produced %u bytes, expected %u (stride mismatch)",
                  path, (unsigned)out_size, (unsigned)expect);
@@ -409,10 +468,16 @@ static BS_Surface* load_jpeg(const char* path) {
     BS_Surface* surf = BS_CreateSurface((Sint32)w, (Sint32)h);
     if (!surf) { heap_caps_free(outbuf); return NULL; }
 
-    // BGR888 with padded row stride -> BS_Surface RGBA32
+    // BGR888 (or 8-bit gray) with padded row stride -> BS_Surface
     for (uint32_t row = 0; row < h; row++) {
-        const uint8_t* src = outbuf + (size_t)row * padded_w * 3;
+        const uint8_t* src = outbuf + (size_t)row * padded_w * bytes_pp;
         BS_Pixel* dst = surf->pixels + (size_t)row * w;
+        if (gray) {
+            for (uint32_t col = 0; col < w; col++) {
+                dst[col] = BS_PackOpaque(BS_MapRGBA(src[col], src[col], src[col], 0xff));
+            }
+            continue;
+        }
         for (uint32_t col = 0; col < w; col++) {
             uint8_t b = src[0], g = src[1], r = src[2];
             src += 3;

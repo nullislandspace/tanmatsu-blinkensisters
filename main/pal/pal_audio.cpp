@@ -28,7 +28,9 @@ extern "C" {
 #include "bsp/audio.h"
 #include "fastopen.h"
 }
+#include <errno.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include "shared/config.h"
 
@@ -109,27 +111,109 @@ static i2s_chan_handle_t s_i2s = NULL;
 static TaskHandle_t s_mixer_task = NULL;
 static volatile bool s_mixer_run = false;
 
-// ---- Decode a whole MP3 file into PCM in PSRAM ----
-static PCM_FX_Entry decode_mp3_file(const char* path) {
-    PCM_FX_Entry entry = {};
+// ---- Read a whole file into PSRAM ----
+static uint8_t* read_fx_file(const char* path, size_t* out_size) {
     FILE* f = fastopen(path, "rb");
     if (!f) {
         ESP_LOGW(TAG, "Cannot open FX file: %s", path);
-        return entry;
+        return NULL;
     }
-
-    fseek(f, 0, SEEK_END);
-    size_t fsize = (size_t)ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    uint8_t* filedata = (uint8_t*)heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM);
-    if (!filedata) {
+    long size = -1;
+    if (fseek(f, 0, SEEK_END) == 0) size = ftell(f);
+    if (size <= 0 || fseek(f, 0, SEEK_SET) != 0) {
+        ESP_LOGE(TAG, "Read error on FX file: %s (errno %d)", path, errno);
+        fastclose(f);
+        return NULL;
+    }
+    uint8_t* data = (uint8_t*)heap_caps_malloc((size_t)size, MALLOC_CAP_SPIRAM);
+    if (!data) {
         ESP_LOGE(TAG, "OOM for FX file read: %s", path);
         fastclose(f);
+        return NULL;
+    }
+    if (fread(data, 1, (size_t)size, f) != (size_t)size) {
+        ESP_LOGE(TAG, "Read error on FX file: %s (errno %d)", path, errno);
+        heap_caps_free(data);
+        fastclose(f);
+        return NULL;
+    }
+    fastclose(f);
+    *out_size = (size_t)size;
+    return data;
+}
+
+static uint32_t rd_le32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
+static uint16_t rd_le16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+
+// ---- Decode a PCM WAV file (8 or 16 bit, mono or stereo) ----
+// LostPixels ships some of its effects as WAV. They used to be handed to the
+// MP3 decoder, which finds no frames in them, so they played as silence.
+static PCM_FX_Entry decode_wav_file(const char* path) {
+    PCM_FX_Entry entry = {};
+    size_t fsize = 0;
+    uint8_t* data = read_fx_file(path, &fsize);
+    if (!data) return entry;
+
+    if (fsize < 12 || memcmp(data, "RIFF", 4) != 0 || memcmp(data + 8, "WAVE", 4) != 0) {
+        ESP_LOGW(TAG, "Not a WAV file: %s", path);
+        heap_caps_free(data);
         return entry;
     }
-    fread(filedata, 1, fsize, f);
-    fastclose(f);
+    uint16_t format = 0, channels = 0, bits = 0;
+    uint32_t rate = 0;
+    const uint8_t* pcm = NULL;
+    size_t pcm_len = 0;
+    size_t pos = 12;
+    while (pos + 8 <= fsize) {
+        uint32_t len = rd_le32(data + pos + 4);
+        const uint8_t* body = data + pos + 8;
+        size_t avail = fsize - (pos + 8);
+        if (memcmp(data + pos, "fmt ", 4) == 0 && len >= 16 && avail >= 16) {
+            format   = rd_le16(body);
+            channels = rd_le16(body + 2);
+            rate     = rd_le32(body + 4);
+            bits     = rd_le16(body + 14);
+        } else if (memcmp(data + pos, "data", 4) == 0) {
+            pcm = body;
+            pcm_len = len < avail ? len : avail;
+            break;
+        }
+        pos += 8 + (size_t)len + (len & 1);
+    }
+    if (format != 1 || (channels != 1 && channels != 2) || (bits != 8 && bits != 16) || !pcm || !rate) {
+        ESP_LOGW(TAG, "Unsupported WAV (format %u, %u ch, %u bit): %s", format, channels, bits, path);
+        heap_caps_free(data);
+        return entry;
+    }
+
+    size_t count = pcm_len / (bits / 8);
+    count -= count % channels;
+    int16_t* out = (int16_t*)heap_caps_malloc((count ? count : 1) * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+    if (!out) {
+        ESP_LOGE(TAG, "OOM for FX PCM output: %s", path);
+        heap_caps_free(data);
+        return entry;
+    }
+    for (size_t i = 0; i < count; i++) {
+        out[i] = (bits == 16) ? (int16_t)rd_le16(pcm + i * 2)
+                              : (int16_t)(((int)pcm[i] - 128) << 8);
+    }
+    heap_caps_free(data);
+
+    entry.samples = out;
+    entry.num_samples = count;
+    entry.channels = channels;
+    entry.sample_rate = (int)rate;
+    ESP_LOGI(TAG, "Loaded FX: %s -> %d samples, %d ch, %d Hz", path, (int)count, channels, (int)rate);
+    return entry;
+}
+
+// ---- Decode a whole MP3 file into PCM in PSRAM ----
+static PCM_FX_Entry decode_mp3_file(const char* path) {
+    PCM_FX_Entry entry = {};
+    size_t fsize = 0;
+    uint8_t* filedata = read_fx_file(path, &fsize);
+    if (!filedata) return entry;
 
     // Rough overestimate of the decoded size; decoding stops if it is hit.
     size_t out_capacity = fsize * 8;
@@ -511,9 +595,18 @@ void PAL_SoundPlayFX(Uint32 fx) {
     voice_start(&s_predef_fx[fx]);
 }
 
+// Scripts name their effects relative to the addon ("fx_open_door.mp3"), as
+// they do every other asset, so resolve them the same way. They were opened
+// by the bare name, which never exists, so every addon effect was silent.
 Uint32 PAL_SoundAddFX(const char* fname) {
     if (s_lua_fx_count >= MAX_FX_SAMPLES) return 0;
-    s_lua_fx[s_lua_fx_count] = decode_mp3_file(fname);
+    const char* path = configGetPath(fname);
+    size_t len = strlen(path);
+    if (len > 4 && strcasecmp(path + len - 4, ".wav") == 0) {
+        s_lua_fx[s_lua_fx_count] = decode_wav_file(path);
+    } else {
+        s_lua_fx[s_lua_fx_count] = decode_mp3_file(path);
+    }
     return s_lua_fx_count++;
 }
 
