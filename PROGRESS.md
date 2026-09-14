@@ -202,6 +202,39 @@ than an error whenever the real MCU was smaller.
 
 ## Known issues
 
+### mz_xmas2007 is unplayably slow (not published)
+Tested on the badge (2026-09-14) with the thinned archive: every level loads,
+but gameplay drops to 0.7 fps on the first frame and gets worse with each
+frame after -- 1.5 s, 6.8 s, 14 s, 28 s per frame. Physics is 98.7-99.8% of
+it. The addon stays out of `addons/index.json` until this is fixed (target:
+before December).
+
+**Why it gets worse, not just slow.** `renderEngine()` runs fixed physics
+steps, 10 ms each (`PHYSICSFPS` = 100), until the physics clock
+(`gLastTick`) catches up with real time, with no limit on how many. Once one
+step costs more than 10 ms, a frame needs more steps than fit in it, the next
+frame needs more still, and it runs away -- the doubling in the log.
+
+**Where a step goes (to be measured).** Every xmas level's `scriptPhysics()`
+moves and re-animates 300+ objects through Lua on every step (`SetObjPos`,
+`SetGFX` per object), and the engine runs `handleTriggers()` and the
+player/object collision checks every step as well. Split Lua time from engine
+time in the profile before optimising either.
+
+**Fix directions.**
+- **Dynamic timing instead of 100 fixed physics updates per second.** Step
+  the simulation by the time that actually passed (or at least cap the steps
+  per frame), so a heavy level runs slower rather than spiralling. The
+  constants that assume 10 ms steps -- speeds, accelerations, gravity,
+  `remaintime -= 0.01`, script counters such as xmas' `gfxwait` -- have to be
+  scaled by the elapsed time, and scripts that count physics calls need an
+  elapsed-time value to count with instead. This is a change to the engine,
+  not just to xmas, and should be tested against every addon's physics feel.
+- Make the script cheaper: only move/animate objects near the screen, or
+  update animations less often than positions.
+- The first frame also spent 1471 ms in rotation, apparently the PPA waiting
+  out work queued behind the physics burst; it is 15 ms afterwards.
+
 ### Player sprites that were never drawn
 Every addon has only `sister_moveleft.bmp` and `sister_moveright.bmp`;
 `bmfextract` and a search of the upstream tree agree nothing else was ever
