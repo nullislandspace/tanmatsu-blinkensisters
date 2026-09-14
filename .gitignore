@@ -24,3 +24,5 @@ badgelink
 # Host tools (built locally, not part of the firmware)
 tools/bmfextract
 tools/bmfcompress
+monitor.log
+log.*.txt
