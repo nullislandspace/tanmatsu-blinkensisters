@@ -5,3 +5,6 @@ dependencies:
   # badge-bsp 0.8.0 sets, so es8156 must stay on 0.0.3.
   badgeteam/badge-bsp: "=0.8.0"
   nicolaielectronics/es8156: "=0.0.3"
+  # WiFi for the addon downloader, the same pin tanmatsu-discord uses on this
+  # IDF/BSP combination.
+  nicolaielectronics/tanmatsu-wifi: "=1.2.0"

@@ -1,11 +1,13 @@
 # BlinkenSisters Tanmatsu Port - Progress
 
-## Status: Beta test candidate (2026-09-06)
+## Status: 1.0.0 release candidate (2026-09-14)
 
 Plays end to end: menu, addon selection, all LostPixels levels, death and
-end screens, highscores, return to launcher. ~25 fps in gameplay. Six addons
-published to the app repository as `at.cavac.blinkensisters` (`make apprepo`);
-a seventh, `mz_xmas2007`, is built and in `sdcard/` but held back.
+end screens, highscores, return to launcher. ~25 fps in gameplay. The app in
+the repository (`at.cavac.blinkensisters`, `make apprepo`) carries no data:
+the base data and six addons download in-game from GitHub releases (see
+"Installing"). A seventh, `mz_xmas2007`, is built and in `sdcard/` but not
+published.
 
 ---
 
@@ -228,9 +230,60 @@ its immediate duplicate peaked near 57 MB on a 32 MB device.
 
 ## Installing
 
-- `make install` -- application binary, metadata, icons. Fast.
-- `make installbmf` -- the ~70 MB of game data. Only needed on a fresh device
-  or after `sdcard/` changes.
+The app itself is only the binary, `metadata.json` and the icons. All game
+data -- the base data and every addon -- is downloaded in-game over WiFi.
+
+- `make install` -- binary, metadata, icons to the badge. Fast.
+- `make apprepo` -- the same set into the app repository, and removes anything
+  there that `metadata.json` does not declare (so the archives the app used to
+  ship are deleted from it). It then checks the binary, renamed to
+  `application.bin`, and the icons actually landed.
+- `make publishaddons` -- publish game data; see below.
+- `make installbmf [BMF="name ..."]` -- development only: upload archives from
+  `sdcard/` straight into the app's folder, to try one before publishing it.
+
+`metadata.json` keeps `external_only`: the data needs the SD card anyway.
+
+### In-game downloads
+
+`addons/index.json` in this repository lists what can be downloaded: a
+`basedata` entry and one entry per addon, each with a version, size, SHA-256
+and the URL of a GitHub release asset (`basedata-v<N>`, `addon-<id>-v<N>`).
+`tools/publish-addons.py` keeps releases and index in step -- see
+`tools/README.md`. The game reads the index from raw.githubusercontent.com.
+
+- **First start**: with no base data unpacked, the game asks to download it
+  (1.8 MB) before anything loads artwork, and asks again until it has it or
+  the player declines, which returns to the launcher. Then it offers Lost
+  Pixels if that is not installed. The first download's progress screen is
+  plain; the themed one needs art from the base data.
+- **Addons** in the main menu lists every addon with its state -- not
+  installed, installed, update available, or needs a newer game
+  (`min_game_version`) -- and installs, updates or removes one. A newer base
+  data version is offered on the way in.
+- **WiFi** uses the networks saved in the launcher (NVS namespace `wifi`), so
+  there is no setup screen here; with none saved the player is told to add
+  one there. The radio comes up at boot, before the SD card is mounted -- the
+  order tanmatsu-discord and the launcher use -- and joins a network only
+  when a download needs it. NVS is never erased at boot any more: it holds
+  those networks.
+- **Downloads** stream to `/sd/blinkensisters/archives/<file>.part`, are
+  checked against size and SHA-256, and only then renamed into place, with
+  `<file>.version` recording what was installed. Stopping (any key) or a
+  dropped connection keeps the `.part`, and the next attempt resumes it with
+  an HTTP Range request; a download that completes but fails the checksum is
+  deleted. GitHub redirects release downloads to a long signed URL, which
+  needs a 4 KB request buffer (`buffer_size_tx`; the default 512 fails).
+- **Removing** an addon deletes its archive, record, stamp, unpacked
+  `ADDON/<id>/` directory and its `addons.dat` line.
+- Archives found in the app's own folder (older installs, `make installbmf`)
+  still count as installed; a downloaded archive of the same name wins.
+
+Unpacking shows the original "Decrunching..." screen with its progress bar,
+driven by the read position in the archive and redrawn a few times a second;
+the downloads use its "Downloading..." sibling.
+
+### Unpacking and stamps
 
 Each archive is unpacked on its own and stamped with
 `/sd/blinkensisters/V<version>/.extracted_<archive>`, holding the archive's
@@ -250,25 +303,8 @@ on every launch instead. `make resetdata` deletes all the stamps to force a
 full unpack.
 
 Not handled: files dropped from a newer version of an archive stay on the SD
-card from the old one.
-
-`metadata.json` sets `external_only`, so the launcher installs to SD card
-only -- the data does not fit in internal flash.
-
-`make apprepo` copies exactly the assets `metadata.json` declares, rather than
-globbing `sdcard/`, so that one file decides what ships: an archive can sit in
-`sdcard/` unpublished (`mz_xmas2007` does) and removing its entry withdraws it.
-Anything in the repository that metadata no longer names is reported as a
-stray, since it would bloat the repository while shipping to nobody.
-
-`make apprepo` stages the whole release into the app repository: metadata,
-icons, the binary **renamed to application.bin** (the build calls it
-tanmatsu-blinkensisters.bin, metadata.json names the other), and the BMFs
-with their `addons/` subdirectory preserved, because that is what the asset
-`source_file` entries say. It then re-reads metadata.json and checks every
-declared asset actually landed -- with several assets across two directories a
-silent `cp` omission would otherwise only surface as a failed install on
-someone else's badge.
+card from the old one, and data unpacked for an older game version
+(`/sd/blinkensisters/V0.5.4`) is left in place.
 
 ---
 

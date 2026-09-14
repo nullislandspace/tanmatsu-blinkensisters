@@ -17,6 +17,11 @@
 // App paths
 #define TANMATSU_APP_PATH "/sd/apps/at.cavac.blinkensisters"
 #define TANMATSU_WORK_DIR "/sd/blinkensisters"
+// Archives downloaded in-game. Kept apart from the app's own directory, which
+// belongs to the launcher.
+#define TANMATSU_ARCHIVE_DIR TANMATSU_WORK_DIR "/archives"
+// The list of downloadable data, maintained by tools/publish-addons.py.
+#define ADDON_INDEX_URL "https://raw.githubusercontent.com/nullislandspace/tanmatsu-blinkensisters/main/addons/index.json"
 
 // Version
 #define VERSION "1.0.0"

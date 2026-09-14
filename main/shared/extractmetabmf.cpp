@@ -32,71 +32,59 @@
 #include "fonthandler.h"
 #include "osdef.h"
 #include "esp_log.h"
+#include "progressui.h"
 
 static const char* TAG = "extractmetabmf";
 
 #define CHUNK_SIZE 4096
 
-SDL_Surface* decrunchingbg = 0;
+// The unpacking screen (progressui) follows the read position in the archive
+// and redraws a few times a second at most. It used to redraw and flip the
+// whole screen for every member, which for an archive of hundreds of small
+// files was most of the time spent unpacking it.
 
-// Show extraction status on screen (used during preStartup when normal progress is disabled)
-static void showExtractionStatus(const char* bmf_path, const char* writing_file) {
-    // Extract just the filename from the BMF path for readability
-    const char* bmf_name = bmf_path;
-    for (const char* p = bmf_path; *p; p++) {
-        if (*p == '/' || *p == '\\') bmf_name = p + 1;
-    }
+static const char* baseName(const char* path) {
+	const char* base = path;
+	for (const char* p = path; *p; p++) {
+		if (*p == '/' || *p == '\\') base = p + 1;
+	}
+	return base;
+}
 
-    if (writing_file && writing_file[0]) {
-        ESP_LOGI(TAG, "Extracting %s -> writing: %s", bmf_name, writing_file);
-    } else {
-        ESP_LOGI(TAG, "Extracting %s ...", bmf_name);
-    }
-
-    if (!gScreen) {
-        ESP_LOGE(TAG, "gScreen is NULL, cannot render status");
-        return;
-    }
-
-    SDL_FillRect(gScreen, NULL, 0xff000000);
-
-    SDL_Color white = {255, 255, 255, 255};
-    renderFontHandlerText(SCR_WIDTH / 2, SCR_HEIGHT / 2 - 40,
-                          "Extracting game data...",
-                          white, true, false, FONT_textfont_20);
-
-    char line[512];
-    snprintf(line, sizeof(line), "BMF: %s", bmf_name);
-    renderFontHandlerText(SCR_WIDTH / 2, SCR_HEIGHT / 2,
-                          line, white, true, false, FONT_textfont_20);
-
-    if (writing_file && writing_file[0]) {
-        snprintf(line, sizeof(line), "Writing: %s", writing_file);
-        renderFontHandlerText(SCR_WIDTH / 2, SCR_HEIGHT / 2 + 40,
-                              line, white, true, false, FONT_textfont_20);
-    }
-
-    int flip_ret = BS_Flip(gScreen);
-    ESP_LOGI(TAG, "BS_Flip returned %d", flip_ret);
+static void unpackProgress(FILE* ifh, long total, const char* bmfName, const char* member, bool force) {
+	long pos = ftell(ifh);
+	if (pos < 0) pos = 0;
+	char line1[160];
+	snprintf(line1, sizeof(line1), "Unpacking %s: %u%%", bmfName,
+	         total > 0 ? (unsigned)((uint64_t)pos * 100 / (uint64_t)total) : 0u);
+	progressUIDraw((uint64_t)pos, (uint64_t)(total > 0 ? total : 1), line1, member, force);
 }
 
 void initExtractMetaBMF() {
-#ifndef DISABLE_BACKGROUND_ART
-	decrunchingbg = BS_IMG_Load_Fullscreen(configGetPath("decrunchingbg.png"), false);
-#endif
 }
 
-
 bool extractMetaBMF(char* fname, bool preStartup) {
+	(void)preStartup;
 	char infname[MAX_FNAME_LENGTH];
-	extractMetaBMFprogress(0, preStartup);
-	showExtractionStatus(fname, "");
+	const char* bmfName = baseName(fname);
 
 	FILE* ifh = fastopen(fname, "rb");
 	if(!ifh) {
 		printf("Can't open file %s for input\n", fname);
 		return false;
 	}
+	long total = -1;
+	if (fseek(ifh, 0, SEEK_END) == 0) {
+		total = ftell(ifh);
+	}
+	if (total < 0 || fseek(ifh, 0, SEEK_SET) != 0) {
+		fastclose(ifh);
+		DIE(ERROR_BMFEOF, fname);
+	}
+	ESP_LOGI(TAG, "Unpacking %s (%ld bytes)", fname, total);
+	progressUIBegin(PROGRESSUI_UNPACK);
+	unpackProgress(ifh, total, bmfName, "", true);
+
 	Uint32 tmpnum;
 	Uint32 bmftype;
 
@@ -124,7 +112,7 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 				break;
 			case BMFTYPE_DIR:
 				tmpnum = bmfReadInt(ifh);
-				if(!fread(infname, tmpnum, 1, ifh)) {
+				if(tmpnum >= sizeof(infname) || !fread(infname, tmpnum, 1, ifh)) {
 					DIE(ERROR_BMFEOF, fname);
 				}
 				infname[tmpnum] = 0;
@@ -134,14 +122,14 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 				break;
 			case BMFTYPE_FILENAME:
 				tmpnum = bmfReadInt(ifh);
-				if(!fread(infname, tmpnum, 1, ifh)) {
+				if(tmpnum >= sizeof(infname) || !fread(infname, tmpnum, 1, ifh)) {
 					DIE(ERROR_BMFEOF, fname);
 				}
 				infname[tmpnum] = 0;
 				break;
 			case BMFTYPE_REGISTER_ADDON:
 				tmpnum = bmfReadInt(ifh);
-				if(!fread(infname, tmpnum, 1, ifh)) {
+				if(tmpnum >= sizeof(infname) || !fread(infname, tmpnum, 1, ifh)) {
 					DIE(ERROR_BMFEOF, fname);
 				}
 				infname[tmpnum] = 0;
@@ -150,7 +138,7 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 				break;
 			case BMFTYPE_REGISTER_MUSIC:
 				tmpnum = bmfReadInt(ifh);
-				if(!fread(infname, tmpnum, 1, ifh)) {
+				if(tmpnum >= sizeof(infname) || !fread(infname, tmpnum, 1, ifh)) {
 					DIE(ERROR_BMFEOF, fname);
 				}
 				infname[tmpnum] = 0;
@@ -159,7 +147,7 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 				break;
 			case BMFTYPE_REGISTER_POSCAP:
 				tmpnum = bmfReadInt(ifh);
-				if(!fread(infname, tmpnum, 1, ifh)) {
+				if(tmpnum >= sizeof(infname) || !fread(infname, tmpnum, 1, ifh)) {
 					DIE(ERROR_BMFEOF, fname);
 				}
 				infname[tmpnum] = 0;
@@ -169,9 +157,8 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 			case BMFTYPE_METAFILE_COMPRESSED:
 			case BMFTYPE_FRAME_COMPRESSED:
 			case BMFTYPE_SND_COMPRESSED:
-				printf("Error: Compressed BMF data not supported (file: %s)\n", fname);
-				fastclose(ifh);
-				exit(1);
+				// exit() hangs on this device; say what is wrong instead.
+				DIE(ERROR_BMFPARSE, "compressed BMF records are not supported");
 				break;
 			case BMFTYPE_METAFILE_UNCOMPRESSED:
 				if(strlen(infname) == 0) {
@@ -179,7 +166,7 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 					DIE(ERROR_FILE_WRITE, "No filename!");
 				}
 				{
-					showExtractionStatus(fname, infname);
+					ESP_LOGD(TAG, "%s -> %s", bmfName, infname);
 					Uint32 file_len = bmfReadInt(ifh);
 
 					// Write file using chunked reading
@@ -193,10 +180,13 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 						if(!fread(chunk, to_read, 1, ifh)) {
 							DIE(ERROR_BMFEOF, fname);
 						}
-						fwrite(chunk, to_read, 1, ofh);
+						if(fwrite(chunk, to_read, 1, ofh) != 1) {
+							DIE(ERROR_FILE_WRITE, configGetPath(infname));
+						}
 						remaining -= to_read;
 					}
 					fastclose(ofh);
+					unpackProgress(ifh, total, bmfName, infname, false);
 				}
 
 				infname[0] = 0; // Delete fname so we don't overwrite
@@ -207,46 +197,25 @@ bool extractMetaBMF(char* fname, bool preStartup) {
 				break;
 
 			default:
-				printf("Unknown BMFTYPE %d...\n", bmftype);
-				exit(1);
+				DIE(ERROR_BMFPARSE, fname);
 		}
 	}
 
+	unpackProgress(ifh, total, bmfName, "", true);
 	fastclose(ifh);
+	progressUIEnd();
 
 	return true;
 
 }
 
 void extractMetaBMFprogress(Uint32 progress, bool preStartup) {
-
-     // Avoid compiler warning about unused argument  FIXME
-     progress = 0;
-
-	if(preStartup) {
-		return;
-	}
-
-#ifdef DISABLE_BACKGROUND_ART
-	drawrect(0, 0, SCR_WIDTH, SCR_HEIGHT, 0x000000);
-#else
-	if (SDL_MUSTLOCK(decrunchingbg))
-		SDL_UnlockSurface(decrunchingbg);
-	if (SDL_MUSTLOCK(gScreen))
-		SDL_UnlockSurface(gScreen);
-
-	SDL_BlitSurface( decrunchingbg,  NULL, gScreen, NULL );
-#endif
-
-	BS_Flip(gScreen); /* Update whole screen */
+	(void)progress;
+	(void)preStartup;
 }
 
 
 void deInitExtractMetaBMF() {
-#ifndef DISABLE_BACKGROUND_ART
-	SDL_FreeSurface(decrunchingbg);
-	decrunchingbg = 0;
-#endif
 }
 
 /* register item (Addon, Music, Poscap) in file */

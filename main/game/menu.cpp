@@ -25,6 +25,7 @@
 #include "showloading.h"
 #include "bsscreen.h"
 #include "selftest.h"
+#include "addonstore.h"
 #include <unistd.h>
 
 SDL_Surface* menubg = 0;
@@ -54,7 +55,7 @@ void deInitMenu() {
 }
 
 bool menuDisplay() {
-	const char* menutexte[] = {"Play", "Self-test", "Quit", NULL};
+	const char* menutexte[] = {"Play", "Addons", "Self-test", "Quit", NULL};
 
 	Uint32 sel = 1;
 	Uint32 max = sizeof(menutexte)/sizeof(menutexte[0])-1;
@@ -109,6 +110,9 @@ bool menuDisplay() {
 				soundPlayFX(FX_MENU);
 				if(strcmp(menutexte[sel-1],"Play")==0) {
 					menuAddonDisplay();
+				} else if(strcmp(menutexte[sel-1],"Addons")==0) {
+					addonStoreMenu();
+					flushJoystick();
 				} else if(strcmp(menutexte[sel-1],"Self-test")==0) {
 					if(guiYesNoDialog("Load and test every level?", "Progress goes to the debug log.", true)) {
 						runSelfTest();
@@ -636,7 +640,11 @@ void menuPerformanceTestMode() {
 }
 
 void menuAttrackMode() {
-	char * filename, * filename2;
+	// The intro and the demo recordings all come from Lost Pixels, which is a
+	// download now and may not be there.
+	if(!configAddonInstalled("LostPixels")) {
+		return;
+	}
 	soundStopMusic();
 
 	attracktModeRunning = true;

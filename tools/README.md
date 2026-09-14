@@ -1,7 +1,8 @@
 # BMF tools
 
-Host-side utilities for the `.bmf` archives the game ships its data in. They
-build with the local compiler and run on your PC, not on the badge.
+Host-side utilities for the `.bmf` archives the game keeps its data in, and
+for publishing them. They build with the local compiler and run on your PC,
+not on the badge.
 
     make -C tools
 
@@ -39,12 +40,30 @@ The config format is `COMMAND=value`, one per line, `#` starts a comment:
 A missing `FILE=` source is skipped with a warning rather than failing the
 build, which is worth knowing: an archive can quietly come out short.
 
+## bmfrepack.py
+
+Rebuild an archive from its own, edited, contents, keeping its record order
+(directories, files, registrations). An unedited repack is byte-identical.
+
+    ./tools/bmfextract extract sdcard/addons/icy.bmf /tmp/icy
+    # ... edit files in /tmp/icy ...
+    ./tools/bmfrepack.py sdcard/addons/icy.bmf /tmp/icy.bmf --tree /tmp/icy \
+        --rename ADDON/Icy/old.gif=ADDON/Icy/old.png --drop 'ADDON/Icy/unused_*'
+
+`--rename OLD=NEW` stores a member under a new name (contents from the tree at
+NEW); `--drop PATTERN` leaves out matching members. Unlike bmfcompress it
+refuses to leave out a member silently. This is how the wormhole GIFs became
+PNGs and how `mz_xmas2007` lost two thirds of its animation frames (see
+`bmfsource/README.md`).
+
 ## publish-addons.py
 
-Publishes addon archives for download and maintains `addons/index.json`, the
-list the game will read to find them. Each addon version is its own GitHub
-release, tagged `addon-<id>-v<version>` and never replaced, so a URL in any
-index ever published keeps pointing at the same bytes.
+Publishes the game data for in-game download and maintains
+`addons/index.json`, the list the game reads to find it: the base data
+(`sdcard/basedata.bmf`, always published, since the app ships without it) and
+the addons. Each version is its own GitHub release, tagged
+`basedata-v<version>` or `addon-<id>-v<version>` and never replaced, so a URL
+in any index ever published keeps pointing at the same bytes.
 
     make publishaddons                    # dry run: print what would happen
     make publishaddons PUBLISH=1          # do it
@@ -65,10 +84,11 @@ that release. Addon releases are marked not-latest, so they never displace a
 game release as the repository's "Latest". Removing an addon only drops its
 index entry; its releases stay, for badges still holding an older index.
 
-Index entry fields: `id` (the addon directory), `name`, `description`,
-`file`, `version`, `min_game_version` (the game version current when the addon
-was added, unless `--min-game-version` says otherwise), `sha256`, `size`,
-`url`.
+Index layout: `format` (1), `basedata` (one entry) and `addons` (a list).
+Entry fields: `id` (the addon directory, or `basedata`), `name`,
+`description`, `file`, `version`, `min_game_version` (the game version current
+when the entry was added, unless `--min-game-version` says otherwise; the game
+refuses entries that need a newer version), `sha256`, `size`, `url`.
 
 ## Artwork the hardware can decode
 
@@ -88,14 +108,15 @@ PNG goes through lodepng in software and has none of these constraints.
 
 ## Editing shipped data
 
-The two tools close the loop without needing the upstream asset tree, since
+The tools close the loop without needing the upstream asset tree, since
 everything is already inside the archive:
 
     ./tools/bmfextract extract sdcard/addons/24c3.bmf /tmp/24c3
     # ... fix something in /tmp/24c3 ...
-    # write a config listing the files, then:
-    ./tools/bmfcompress META /tmp/24c3/config sdcard/addons/24c3.bmf
-    make installbmf
+    ./tools/bmfrepack.py sdcard/addons/24c3.bmf /tmp/24c3.bmf --tree /tmp/24c3
+    cp /tmp/24c3.bmf sdcard/addons/24c3.bmf
+    make installbmf BMF=24c3          # try it on the badge
+    git commit ... && git push && make publishaddons PUBLISH=1   # ship it
 
 The original configs are preserved in `bmfsource/` for reference — see
 `bmfsource/README.md`.

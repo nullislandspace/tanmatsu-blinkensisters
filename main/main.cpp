@@ -24,6 +24,7 @@ extern esp_err_t bsp_audio_initialize(uint32_t rate);
 #include "pal/pal_input.h"
 #include "pal/pal_font.h"
 #include "pal/pal_audio.h"
+#include "pal/pal_net.h"
 #include "shared/config.h"
 #include "shared/errorhandler.h"
 #include "shared/showloading.h"
@@ -35,6 +36,7 @@ extern esp_err_t bsp_audio_initialize(uint32_t rate);
 #include "game/bsgui.h"
 #include "game/fginlay.h"
 #include "game/engine.h"
+#include "game/addonstore.h"
 
 static const char* TAG = "main";
 
@@ -76,12 +78,21 @@ static void game_task(void* arg) {
     configInit(false);
     configStartupComplete();
 
+    // The app ships without game data; on a first start it is downloaded
+    // here, before anything below tries to load it.
+    if (!addonStoreEnsureBaseData()) {
+        quitToLauncher();
+    }
+    deInitShowLoading();
+    initShowLoading("loading.jpg");
+
     // The built-in sound effects live in the extracted game data, so they can
     // only be loaded now that configInit() has unpacked it.
     loadSoundFX();
 
     displayGraphicalErrors = true;
     initMenu();
+    addonStoreOfferLostPixels();
 
     // Main menu loop
     while (menuDisplay()) {
@@ -108,10 +119,12 @@ extern "C" void app_main(void) {
     gpio_install_isr_service(0);
 
     // NVS
+    // Never erase NVS here: it holds the WiFi networks saved in the launcher,
+    // which the addon downloader connects with. If it cannot be opened, WiFi
+    // simply reports that no network is set up.
     esp_err_t res = nvs_flash_init();
-    if (res == ESP_ERR_NVS_NO_FREE_PAGES || res == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        nvs_flash_init();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(res));
     }
 
     // BSP
@@ -128,6 +141,12 @@ extern "C" void app_main(void) {
         ESP_LOGE(TAG, "BSP init failed: %d", res);
         return;
     }
+
+    // Radio and WiFi stack before the SD card: the radio talks SDIO on the
+    // second SDMMC slot, and mounting the card first disturbs its bring-up
+    // (the launcher and tanmatsu-discord do it in this order too).
+    PAL_NetBootInit();
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     // SD card (must be before any file access)
     res = sdcard_init();

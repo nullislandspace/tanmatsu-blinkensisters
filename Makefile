@@ -84,27 +84,27 @@ install: build
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
 	@echo "=== Installation complete ==="
-	@echo "(Game data is NOT uploaded by this target: run 'make installbmf'.)"
+	@echo "(The game downloads its data itself; see 'make publishaddons'.)"
 
-# The BMF game data is ~70 MB and takes minutes to upload, but it only changes
-# when the artwork does -- so it is a separate target rather than part of every
-# install. Run it on a fresh device, and again after anything under sdcard/
-# changes; otherwise the device keeps running the data already on it.
+# Development only. Players get the game data from in-game downloads (published
+# with 'make publishaddons'); this uploads archives from sdcard/ straight into
+# the app's folder instead, to try one before publishing it -- the game still
+# unpacks archives found there, and a downloaded copy of the same name wins.
+# Uploads everything (~80 MB, minutes) unless BMF names some:
+#   make installbmf BMF="mz_xmas2007"
+#   make installbmf BMF="basedata LostPixels"
 .PHONY: installbmf
 installbmf:
-	@echo "=== Installing game data ==="
-	@echo "Creating directory $(APP_INSTALL_PATH)..."
+	@echo "=== Uploading archives for testing ==="
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH) || true
-	@echo "Uploading basedata.bmf (this takes a while)..."
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/basedata.bmf ../../sdcard/basedata.bmf
-	@echo "Creating directory $(APP_INSTALL_PATH)/addons..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/addons || true
-	@echo "Uploading addon BMFs..."
-	cd badgelink/tools; for f in ../../sdcard/addons/*.bmf; do \
+	cd badgelink/tools; for f in $(if $(BMF),$(foreach b,$(BMF),$(if $(filter basedata,$(b)),../../sdcard/basedata.bmf,../../sdcard/addons/$(b).bmf)),../../sdcard/basedata.bmf ../../sdcard/addons/*.bmf); do \
+		test -f $$f || { echo "no such archive: $$f"; exit 1; }; \
+		case $$(basename $$f) in basedata.bmf) dest=$(APP_INSTALL_PATH)/basedata.bmf;; *) dest=$(APP_INSTALL_PATH)/addons/$$(basename $$f);; esac; \
 		echo "  $$(basename $$f)"; \
-		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/addons/$$(basename $$f) $$f || exit 1; \
+		./badgelink.sh $(BADGELINK_CONN) fs upload $$dest $$f || exit 1; \
 	done
-	@echo "=== Game data installed ==="
+	@echo "=== Archives uploaded ==="
 
 # The game stamps each archive it unpacks with its size, time and CRC32, and on
 # launch unpacks only the ones that no longer match -- so after installbmf there
@@ -152,21 +152,16 @@ APP_REPO_PATH ?= ../tanmatsu-app-repository/$(APP_SLUG)
 .PHONY: apprepo
 apprepo: build
 	@echo "=== Updating app repository ==="
-	mkdir -p $(APP_REPO_PATH)/addons
+	mkdir -p $(APP_REPO_PATH)
 	cp metadata/metadata.json $(APP_REPO_PATH)/metadata.json
 	cp metadata/icon16.png $(APP_REPO_PATH)/icon16.png
 	cp metadata/icon32.png $(APP_REPO_PATH)/icon32.png
 	cp metadata/icon64.png $(APP_REPO_PATH)/icon64.png
 	cp $(BUILD)/tanmatsu-blinkensisters.bin $(APP_REPO_PATH)/application.bin
-	@echo "Copying game data (~70 MB)..."
-	@for f in $$(python3 -c "import json;print(' '.join(x['source_file'] for x in json.load(open('metadata/metadata.json'))['application'][0]['assets']))"); do \
-		echo "  $$f"; \
-		mkdir -p $(APP_REPO_PATH)/$$(dirname $$f); \
-		cp sdcard/$$f $(APP_REPO_PATH)/$$f || exit 1; \
-	done
-	@echo "Checking every asset metadata.json declares is present..."
-	@python3 -c "import json,os,sys; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; missing=[x['source_file'] for x in a['assets'] if not os.path.isfile(os.path.join(p,x['source_file']))]; missing += [f for f in [a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'] if not os.path.isfile(os.path.join(p,f))]; sys.exit('MISSING in repo: '+', '.join(missing)) if missing else print('  all %d assets + executable + icons present' % len(a['assets']))"
-	@python3 -c "import json,os,glob; p='$(APP_REPO_PATH)'; d=set(x['source_file'] for x in json.load(open('metadata/metadata.json'))['application'][0]['assets']); stray=sorted(os.path.relpath(f,p) for f in glob.glob(p+'/**/*.bmf',recursive=True) if os.path.relpath(f,p) not in d); print('  WARNING: in the repository but NOT declared in metadata.json, so it ships to nobody and merely bloats the repo:') if stray else None; [print('    '+f) for f in stray]"
+	@# The game data is no longer part of the app: it downloads in-game. Any
+	@# asset metadata.json does not declare would ship to nobody, so remove it.
+	@python3 -c "import json,os,glob; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; keep=set(x['source_file'] for x in a.get('assets',[])) | {a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'}; stray=sorted(os.path.relpath(f,p) for f in glob.glob(p+'/**/*',recursive=True) if os.path.isfile(f) and os.path.relpath(f,p) not in keep); [print('  removing undeclared '+f) or os.remove(os.path.join(p,f)) for f in stray]; [os.rmdir(d) for d in sorted(glob.glob(p+'/**/',recursive=True),reverse=True) if d.rstrip('/')!=p and not os.listdir(d)]"
+	@python3 -c "import json,os,sys; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; missing=[x['source_file'] for x in a.get('assets',[]) if not os.path.isfile(os.path.join(p,x['source_file']))]; missing += [f for f in [a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'] if not os.path.isfile(os.path.join(p,f))]; sys.exit('MISSING in repo: '+', '.join(missing)) if missing else print('  executable, metadata and icons present')"
 	@echo "=== App repository updated at $(APP_REPO_PATH) ==="
 
 # Preparation

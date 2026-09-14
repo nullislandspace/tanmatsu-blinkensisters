@@ -2,9 +2,12 @@
 """Publish addon archives as GitHub releases and keep addons/index.json in step.
 
 addons/index.json is both the list of what is published and what the game
-reads to find downloads. Each entry points at an immutable release asset:
+reads to find downloads: the base data (sdcard/basedata.bmf, always published,
+since the app ships without archives) and the addons. Each entry points at an
+immutable release asset:
 
     tag  addon-<id>-v<version>      e.g. addon-LostPixels-v2
+         basedata-v<version>
     url  https://github.com/<repo>/releases/download/<tag>/<file>
 
 A run compares every archive in the index against sdcard/addons/. An archive
@@ -40,6 +43,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX = os.path.join(ROOT, "addons", "index.json")
 ADDON_DIR = os.path.join(ROOT, "sdcard", "addons")
+BASEDATA = os.path.join(ROOT, "sdcard", "basedata.bmf")
+BASE_ID = "basedata"
+BASE_NAME = "Game data"
+BASE_DESC = "Menus, sounds and screens shared by every addon"
 BMFEXTRACT = os.path.join(ROOT, "tools", "bmfextract")
 GLOBALS_H = os.path.join(ROOT, "main", "shared", "globals.h")
 DEFAULT_REPO = "nullislandspace/tanmatsu-blinkensisters"
@@ -99,18 +106,22 @@ def load_index():
         idx = json.load(f)
     if idx.get("format") != INDEX_FORMAT:
         die("%s: unsupported format %r" % (INDEX, idx.get("format")))
+    idx.setdefault("addons", [])
     return idx
 
 
 def save_index(idx):
     idx["addons"].sort(key=lambda e: (e["id"] != "LostPixels", e["id"].lower()))
+    ordered = {"format": idx["format"], "basedata": idx["basedata"], "addons": idx["addons"]}
     os.makedirs(os.path.dirname(INDEX), exist_ok=True)
     with open(INDEX, "w") as f:
-        json.dump(idx, f, indent=2)
+        json.dump(ordered, f, indent=2)
         f.write("\n")
 
 
 def tag_for(entry_id, version):
+    if entry_id == BASE_ID:
+        return "basedata-v%d" % version
     return "addon-%s-v%d" % (entry_id, version)
 
 
@@ -196,14 +207,29 @@ def main():
         idx["addons"].append(entry)
         by_id[rid] = entry
 
-    for entry in idx["addons"]:
-        path = os.path.join(ADDON_DIR, entry["file"])
-        if not os.path.exists(path):
-            die("%s: %s is missing (use --remove %s to stop publishing it)"
-                % (entry["id"], path, entry["id"]))
-        name, desc, rid = registration(path)
-        if rid != entry["id"]:
-            die("%s: the archive now registers itself as '%s'" % (entry["file"], rid))
+    # The base data is always published: the game ships without archives and
+    # downloads this before anything else.
+    if "basedata" not in idx:
+        idx["basedata"] = {"id": BASE_ID, "name": BASE_NAME, "description": BASE_DESC,
+                           "file": "basedata.bmf", "version": 0,
+                           "min_game_version": args.min_game_version or game_version()}
+    items = [("basedata", None, idx["basedata"])] + \
+            [("addons", i, e) for i, e in enumerate(idx["addons"])]
+
+    for where, pos, entry in items:
+        if where == "basedata":
+            path = BASEDATA
+            if not os.path.exists(path):
+                die("%s is missing" % path)
+            name, desc, rid = BASE_NAME, BASE_DESC, BASE_ID
+        else:
+            path = os.path.join(ADDON_DIR, entry["file"])
+            if not os.path.exists(path):
+                die("%s: %s is missing (use --remove %s to stop publishing it)"
+                    % (entry["id"], path, entry["id"]))
+            name, desc, rid = registration(path)
+            if rid != entry["id"]:
+                die("%s: the archive now registers itself as '%s'" % (entry["file"], rid))
         digest = sha256_of(path)
         size = os.path.getsize(path)
         if digest == entry.get("sha256") and name == entry["name"] and desc == entry["description"]:
@@ -226,7 +252,10 @@ def main():
             print("renamed   %-16s v%d  (name or description only, no new release)"
                   % (rid, entry["version"]))
             plan.append((new, "verify", path))
-        idx["addons"][idx["addons"].index(entry)] = new
+        if where == "basedata":
+            idx["basedata"] = new
+        else:
+            idx["addons"][pos] = new
         changed_index = True
 
     releases = [p for p in plan if p[1] == "release"]

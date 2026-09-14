@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
+idf_build_get_property(idf_target IDF_TARGET)
+if("${idf_target}" STREQUAL "esp32p4")
+    list(APPEND extra_requires esp-hosted-tanmatsu)
+endif()
+
 # Collect all source files
 file(GLOB GAME_SRCS    "game/*.cpp")
 file(GLOB SHARED_SRCS  "shared/*.cpp")
@@ -35,6 +40,11 @@ idf_component_register(
         esp_driver_ppa
         esp_mm
         sdmmc
+        tanmatsu-wifi
+        esp_http_client
+        mbedtls
+        json
+        ${extra_requires}
     INCLUDE_DIRS
         "."
         "shared"

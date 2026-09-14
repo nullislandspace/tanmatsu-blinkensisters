@@ -1,4 +1,5 @@
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <dirent.h>
@@ -143,6 +144,8 @@ typedef struct {
 } bmf_stamp_t;
 
 static void stampPathFor(const char* bmfpath, char* out, size_t outlen) {
+    // Keyed by file name alone: the same archive may sit in either directory
+    // (see configFindArchive), and it is the same unpacked data either way.
     const char* base = strrchr(bmfpath, '/');
     base = base ? base + 1 : bmfpath;
     snprintf(out, outlen, "%s/V%s/.extracted_%s", TANMATSU_WORK_DIR, VERSION, base);
@@ -245,31 +248,83 @@ static bool configExtractIfChanged(const char* bmfpath, bool force) {
     return true;
 }
 
-static void configExtractAddons(bool force) {
-    // Extract BMF files from app path to working dir
-    char addondirname[PATH_MAX];
-    snprintf(addondirname, sizeof(addondirname), "%s/addons", TANMATSU_APP_PATH);
-    DIR* dir = opendir(addondirname);
-    if (!dir) {
-        printf("No addons directory found at %s\n", addondirname);
-        return;
+static bool isArchiveName(const char* name) {
+    size_t n = strlen(name);
+    return n > 4 && strcasecmp(name + n - 4, ".bmf") == 0;
+}
+
+bool configFindArchive(const char* file, char* out, size_t outlen, bool* downloaded) {
+    snprintf(out, outlen, "%s/%s", TANMATSU_ARCHIVE_DIR, file);
+    if (file_exists(out)) {
+        if (downloaded) *downloaded = true;
+        return true;
     }
-    struct dirent* ent;
-    while ((ent = readdir(dir)) != NULL) {
-        char* ext = strrchr(ent->d_name, '.');
-        if (!ext || strcmp(ext, ".bmf") != 0) continue;
-        char tmp[PATH_MAX], tmp2[PATH_MAX];
-        snprintf(tmp, sizeof(tmp), "%s/%s", addondirname, ent->d_name);
-        if (!configExtractIfChanged(tmp, force)) continue;
-        strncpy(tmp2, ent->d_name, sizeof(tmp2) - 1);
-        tmp2[sizeof(tmp2) - 1] = '\0';
-        // Remove .bmf extension
-        size_t nlen = strlen(tmp2);
-        if (nlen > 4) tmp2[nlen - 4] = '\0';
-        snprintf(tmp, sizeof(tmp), "ADDON/%s/config", tmp2);
+    if (strcasecmp(file, "basedata.bmf") == 0) {
+        snprintf(out, outlen, "%s/%s", TANMATSU_APP_PATH, file);
+    } else {
+        snprintf(out, outlen, "%s/addons/%s", TANMATSU_APP_PATH, file);
+    }
+    if (downloaded) *downloaded = false;
+    return file_exists(out);
+}
+
+bool configExtractArchive(const char* bmfpath, bool force) {
+    if (!configExtractIfChanged(bmfpath, force)) {
+        return false;
+    }
+    const char* base = strrchr(bmfpath, '/');
+    base = base ? base + 1 : bmfpath;
+    if (strcasecmp(base, "basedata.bmf") != 0) {
+        char name[PATH_MAX], tmp[PATH_MAX];
+        snprintf(name, sizeof(name), "%s", base);
+        name[strlen(name) - 4] = '\0';   // drop ".bmf"
+        snprintf(tmp, sizeof(tmp), "ADDON/%s/config", name);
         registerLevelconfig(configGetPath(tmp));
     }
-    closedir(dir);
+    return true;
+}
+
+void configForgetArchive(const char* file) {
+    char stamppath[PATH_MAX];
+    stampPathFor(file, stamppath, sizeof(stamppath));
+    unlink(stamppath);
+}
+
+bool configAddonInstalled(const char* dir) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/V%s/ADDON/%s/level1.conf", TANMATSU_WORK_DIR, VERSION, dir);
+    return file_exists(path);
+}
+
+bool configBaseDataInstalled() {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/V%s/menubg.jpg", TANMATSU_WORK_DIR, VERSION);
+    return file_exists(path);
+}
+
+// Addon archives come from two places: downloaded ones in TANMATSU_ARCHIVE_DIR,
+// and any the launcher (or `make installbmf`) put in the app's own directory.
+// A downloaded copy wins over one of the same name there, so unpack only one
+// of each name -- they would otherwise take turns overwriting each other's
+// data and stamp on every launch.
+static void configExtractAddons(bool force) {
+    const char* dirs[2] = { TANMATSU_ARCHIVE_DIR, TANMATSU_APP_PATH "/addons" };
+    for (int d = 0; d < 2; d++) {
+        DIR* dir = opendir(dirs[d]);
+        if (!dir) continue;
+        struct dirent* ent;
+        while ((ent = readdir(dir)) != NULL) {
+            if (!isArchiveName(ent->d_name) || strcasecmp(ent->d_name, "basedata.bmf") == 0) continue;
+            char path[PATH_MAX];
+            if (d == 1) {
+                snprintf(path, sizeof(path), "%s/%s", TANMATSU_ARCHIVE_DIR, ent->d_name);
+                if (file_exists(path)) continue;   // the downloaded copy was used
+            }
+            snprintf(path, sizeof(path), "%s/%s", dirs[d], ent->d_name);
+            configExtractArchive(path, force);
+        }
+        closedir(dir);
+    }
 }
 
 void configInit(const bool forceUpdate) {
@@ -288,9 +343,14 @@ void configInit(const bool forceUpdate) {
     snprintf(legacymarker, sizeof(legacymarker), "%s/.extracted", verdir);
     unlink(legacymarker);
 
+    mkdir(TANMATSU_ARCHIVE_DIR, S_IRWXU);
+
+    // Base data may not be there at all: the app ships without archives and
+    // downloads them on first start (see addonstore).
     char basedatapath[PATH_MAX];
-    snprintf(basedatapath, sizeof(basedatapath), "%s/basedata.bmf", TANMATSU_APP_PATH);
-    configExtractIfChanged(basedatapath, forceUpdate);
+    if (configFindArchive("basedata.bmf", basedatapath, sizeof(basedatapath), NULL)) {
+        configExtractIfChanged(basedatapath, forceUpdate);
+    }
 
     configExtractAddons(forceUpdate);
 }
