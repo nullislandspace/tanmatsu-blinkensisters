@@ -1,0 +1,71 @@
+{
+  "format": 1,
+  "addons": [
+    {
+      "id": "LostPixels",
+      "name": "Lost Pixels",
+      "description": "Hunt for The Lost Pixels",
+      "file": "LostPixels.bmf",
+      "version": 1,
+      "min_game_version": "0.5.4",
+      "sha256": "0ad84f648cf8df016505f8e035c6734224242e7ada176a9b3300ed4351cdb633",
+      "size": 43089690,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-LostPixels-v1/LostPixels.bmf"
+    },
+    {
+      "id": "24c3",
+      "name": "24c3",
+      "description": "Level-Contest 24c3",
+      "file": "24c3.bmf",
+      "version": 1,
+      "min_game_version": "0.5.4",
+      "sha256": "6405320c7c0b26a19bc7c0e313bb3ee2e49c23f768bee04ebe0fee8b1ff07231",
+      "size": 8049593,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-24c3-v1/24c3.bmf"
+    },
+    {
+      "id": "Icy",
+      "name": "Icy",
+      "description": "by Mithodin",
+      "file": "icy.bmf",
+      "version": 1,
+      "min_game_version": "0.5.4",
+      "sha256": "c76b1d948ce40c7d275a76fd43557bc75e8e624d2e2b25e0902618d886379e2a",
+      "size": 7190210,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-Icy-v1/icy.bmf"
+    },
+    {
+      "id": "MZ_Escape",
+      "name": "MZ Escape",
+      "description": "Escape from Agent Kate",
+      "file": "mz_escape.bmf",
+      "version": 1,
+      "min_game_version": "0.5.4",
+      "sha256": "f585cfd2956768e1650c9835e64fecebdf5d44491d79c1a2e1e3b1edf8c6a937",
+      "size": 3394563,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-MZ_Escape-v1/mz_escape.bmf"
+    },
+    {
+      "id": "MZ_Pnog",
+      "name": "MZ Pnog",
+      "description": "Play PNOG against blue Datenkrake",
+      "file": "mz_pnog.bmf",
+      "version": 1,
+      "min_game_version": "0.5.4",
+      "sha256": "f60b17244fcde47237a984a547ebcf3b96f1942f9a0360a8020a381e9fbc01a3",
+      "size": 1795719,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-MZ_Pnog-v1/mz_pnog.bmf"
+    },
+    {
+      "id": "S23_IvoryTower",
+      "name": "Ivory Tower",
+      "description": "The s23 Ivory-Tower-AddOn",
+      "file": "s23_ivorytower.bmf",
+      "version": 1,
+      "min_game_version": "0.5.4",
+      "sha256": "821380efe7e7776be3de1b658f256fac1423310495b34d46386c60bdb9be35cf",
+      "size": 6632536,
+      "url": "https://github.com/nullislandspace/tanmatsu-blinkensisters/releases/download/addon-S23_IvoryTower-v1/s23_ivorytower.bmf"
+    }
+  ]
+}
