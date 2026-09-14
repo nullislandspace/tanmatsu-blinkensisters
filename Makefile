@@ -67,6 +67,9 @@ APP_SLUG ?= at.cavac.blinkensisters
 GAME_VERSION := $(shell sed -n 's/^#define VERSION "\(.*\)"/\1/p' main/shared/globals.h)
 APP_INSTALL_BASE_PATH ?= /sd/apps/
 APP_INSTALL_PATH = $(APP_INSTALL_BASE_PATH)$(APP_SLUG)
+# Data files the app ships, straight from metadata.json: the one list that
+# decides what install and apprepo deliver.
+ASSETS = $(shell python3 -c "import json;print(' '.join(x['source_file'] for x in json.load(open('metadata/metadata.json'))['application'][0]['assets']))")
 
 .PHONY: install
 install: build
@@ -83,8 +86,14 @@ install: build
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon32.png ../../metadata/icon32.png
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
+	@# The assets metadata.json declares, as the launcher would install them.
+	@# Only the base data now; addons are downloaded in-game.
+	@cd badgelink/tools; for f in $(ASSETS); do \
+		echo "Uploading $$f..."; \
+		./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/$$f ../../sdcard/$$f || exit 1; \
+	done
 	@echo "=== Installation complete ==="
-	@echo "(The game downloads its data itself; see 'make publishaddons'.)"
+	@echo "(Addons are downloaded in-game; see 'make publishaddons'.)"
 
 # Development only. Players get the game data from in-game downloads (published
 # with 'make publishaddons'); this uploads archives from sdcard/ straight into
@@ -158,10 +167,15 @@ apprepo: build
 	cp metadata/icon32.png $(APP_REPO_PATH)/icon32.png
 	cp metadata/icon64.png $(APP_REPO_PATH)/icon64.png
 	cp $(BUILD)/tanmatsu-blinkensisters.bin $(APP_REPO_PATH)/application.bin
-	@# The game data is no longer part of the app: it downloads in-game. Any
-	@# asset metadata.json does not declare would ship to nobody, so remove it.
+	@for f in $(ASSETS); do \
+		echo "  $$f"; \
+		mkdir -p $(APP_REPO_PATH)/$$(dirname $$f); \
+		cp sdcard/$$f $(APP_REPO_PATH)/$$f || exit 1; \
+	done
+	@# Addons are no longer part of the app: they download in-game. Anything
+	@# metadata.json does not declare would ship to nobody, so remove it.
 	@python3 -c "import json,os,glob; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; keep=set(x['source_file'] for x in a.get('assets',[])) | {a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'}; stray=sorted(os.path.relpath(f,p) for f in glob.glob(p+'/**/*',recursive=True) if os.path.isfile(f) and os.path.relpath(f,p) not in keep); [print('  removing undeclared '+f) or os.remove(os.path.join(p,f)) for f in stray]; [os.rmdir(d) for d in sorted(glob.glob(p+'/**/',recursive=True),reverse=True) if d.rstrip('/')!=p and not os.listdir(d)]"
-	@python3 -c "import json,os,sys; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; missing=[x['source_file'] for x in a.get('assets',[]) if not os.path.isfile(os.path.join(p,x['source_file']))]; missing += [f for f in [a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'] if not os.path.isfile(os.path.join(p,f))]; sys.exit('MISSING in repo: '+', '.join(missing)) if missing else print('  executable, metadata and icons present')"
+	@python3 -c "import json,os,sys; p='$(APP_REPO_PATH)'; a=json.load(open('metadata/metadata.json'))['application'][0]; missing=[x['source_file'] for x in a.get('assets',[]) if not os.path.isfile(os.path.join(p,x['source_file']))]; missing += [f for f in [a['executable'],'metadata.json','icon16.png','icon32.png','icon64.png'] if not os.path.isfile(os.path.join(p,f))]; sys.exit('MISSING in repo: '+', '.join(missing)) if missing else print('  %d asset(s), executable, metadata and icons present' % len(a.get('assets',[])))"
 	@echo "=== App repository updated at $(APP_REPO_PATH) ==="
 
 # Preparation

@@ -4,9 +4,9 @@
 
 Plays end to end: menu, addon selection, all LostPixels levels, death and
 end screens, highscores, return to launcher. ~25 fps in gameplay. The app in
-the repository (`at.cavac.blinkensisters`, `make apprepo`) carries no data:
-the base data and six addons download in-game from GitHub releases (see
-"Installing"). A seventh, `mz_xmas2007`, is built and in `sdcard/` but not
+the repository (`at.cavac.blinkensisters`, `make apprepo`) carries no addons:
+it ships the base data, and six addons download in-game from GitHub releases
+(see "Installing"). A seventh, `mz_xmas2007`, is built and in `sdcard/` but not
 published.
 
 ---
@@ -230,14 +230,22 @@ its immediate duplicate peaked near 57 MB on a 32 MB device.
 
 ## Installing
 
-The app itself is only the binary, `metadata.json` and the icons. All game
-data -- the base data and every addon -- is downloaded in-game over WiFi.
+The app is the binary, `metadata.json`, the icons and `basedata.bmf` (1.8 MB,
+the one asset metadata.json declares). Every addon is downloaded in-game over
+WiFi, and so is a newer base data when one is published.
 
-- `make install` -- binary, metadata, icons to the badge. Fast.
+Shipping the base data is not strictly needed -- the game downloads it on a
+first start if it is missing -- but it costs nothing (the launcher is online
+when it installs the app anyway), shows menus and the themed download screen
+from the start, and keeps the Addons menu reachable even if that first
+download were to fail.
+
+- `make install` -- binary, metadata, icons and the declared assets to the
+  badge, as the launcher would install them. Fast.
 - `make apprepo` -- the same set into the app repository, and removes anything
-  there that `metadata.json` does not declare (so the archives the app used to
-  ship are deleted from it). It then checks the binary, renamed to
-  `application.bin`, and the icons actually landed.
+  there that `metadata.json` does not declare (so the addon archives the app
+  used to ship are deleted from it). It then checks the binary, renamed to
+  `application.bin`, the assets and the icons actually landed.
 - `make publishaddons` -- publish game data; see below.
 - `make installbmf [BMF="name ..."]` -- development only: upload archives from
   `sdcard/` straight into the app's folder, to try one before publishing it.

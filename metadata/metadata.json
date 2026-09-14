@@ -22,7 +22,12 @@
       "revision": 2,
       "type": "appfs",
       "executable": "application.bin",
-      "assets": []
+      "assets": [
+        {
+          "source_file": "basedata.bmf",
+          "target_file": "basedata.bmf"
+        }
+      ]
     }
   ]
 }
