@@ -19,7 +19,7 @@
         "konsool"
       ],
       "external_only": true,
-      "revision": 2,
+      "revision": 3,
       "type": "appfs",
       "executable": "application.bin",
       "assets": [
