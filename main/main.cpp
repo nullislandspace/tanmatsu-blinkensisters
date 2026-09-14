@@ -94,6 +94,11 @@ static void game_task(void* arg) {
     initMenu();
     addonStoreOfferLostPixels();
 
+    // Open on the title screen, as the original did: attract mode starts with
+    // the intro and then runs the demo levels, and any key leaves it for the
+    // menu. It needs Lost Pixels and quietly does nothing without it.
+    menuAttrackMode();
+
     // Main menu loop
     while (menuDisplay()) {
         // loop returns false to quit
