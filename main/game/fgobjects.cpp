@@ -8,6 +8,7 @@
 
 
 #include <stdio.h>
+#include <sys/stat.h>
 #include "globals.h"
 #include "fgobjects.h"
 #include "errorhandler.h"
@@ -115,6 +116,15 @@ Uint32 addFGObjGFX(const char *fname, bool ignoreLoadError) {
 	
 	char fullfname[MAX_FNAME_LENGTH];
 	sprintf(fullfname, "%s", configGetPath(fname));
+	/* An optional graphic that is simply not there is not worth a warning --
+	   the player sprites for standing still, up, down and the diagonals were
+	   never drawn for any addon, and warned seven times on every level. The
+	   caller reports what it falls back to. One that is there but will not
+	   load still warns, from the loader. */
+	struct stat st;
+	if(ignoreLoadError && stat(fullfname, &st) != 0) {
+		return PSEUDO_FGOBJECTGFXNUM;
+	}
 	SDL_Surface* temp = IMG_Load(fullfname);
 	if(!temp) {
 		if(!ignoreLoadError) {

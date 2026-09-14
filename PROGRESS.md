@@ -203,15 +203,22 @@ than an error whenever the real MCU was smaller.
 ## Known issues
 
 ### Player sprites that were never drawn
-The engine asks for `sister_movenone`, `sister_moveup`, `sister_movedown` and
-the four diagonals, logs "Can't load FgObjGFX ... ignored" for each, and
-leaves the player invisible when idle.
+Every addon has only `sister_moveleft.bmp` and `sister_moveright.bmp`;
+`bmfextract` and a search of the upstream tree agree nothing else was ever
+drawn. The engine also asks for `sister_movenone` (standing still),
+`sister_moveup`, `sister_movedown` and the four diagonals, but treats them as
+optional overrides an addon may supply (`initPlayerSprite`,
+`updateSpriteGFX`):
 
-These are not missing data. `bmfextract` and a search of the upstream tree
-both say only `sister_moveleft.bmp` and `sister_moveright.bmp` have ever
-existed, in any archive or any addon. This is artwork to create, not data to
-recover. The cheap alternative is falling back to the last-facing sprite when
-idle, which needs no artwork at all.
+- the diagonals are mapped to the left or right sprite when the level loads;
+- standing still, up and down keep showing the last direction, on its first
+  frame.
+
+So nothing is invisible and nothing needs fixing for play; it is artwork an
+addon could add. These sprites used to log a warning each on every level --
+seven per level, which also made every self-test level count as "with
+warnings". Absent optional sprites are now skipped quietly, with one info line
+per level naming them (`playersprite: optional sprites not in this addon`).
 
 ### FORCE_PPA_ROTATE still on
 `main/pal/pal_screen.cpp` uses the PPA flip even if `calibrate_flip()` cannot

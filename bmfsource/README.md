@@ -50,9 +50,10 @@ anyway; rebuilding with a corrected source path would fix it properly.
 **Only two player sprites exist.** `sister_moveleft.bmp` and
 `sister_moveright.bmp`, in every addon. The engine also asks for
 `sister_movenone`, `sister_moveup`, `sister_movedown` and the four diagonals,
-logs "Can't load FgObjGFX ... ignored" for each, and leaves the player
-invisible when idle. These were never drawn — not in any archive and not in
-the upstream tree — so this is artwork to create, not data to recover.
+but as optional overrides: diagonals fall back to left/right, and standing
+still, up and down keep the last direction shown. They were never drawn -- not
+in any archive and not in the upstream tree -- so an addon could add them, but
+nothing is missing for play.
 
 **The wormhole frames are PNG, not GIF.** `LostPixels` and `Icy` both carry
 the same 24 frames, `wormhole64x64_0001..0024`, upstream as GIF, which the

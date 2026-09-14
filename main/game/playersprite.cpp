@@ -13,6 +13,8 @@
 #include "engine.h"
 #include "convert.h"
 #include "fgobjects.h"
+#include "esp_log.h"
+#include <string.h>
 
 Uint32 playerspritegfx[PLAYERSPRITE_MAX];
 SDL_Surface* playersprite;
@@ -37,6 +39,18 @@ void initPlayerSprite() {
 	playerspritegfx[PLAYERSPRITE_RIGHTDOWN] = addFGObjGFX("sister_moverightdown.bmp", true);
 	playerspritegfx[PLAYERSPRITE_UP] = addFGObjGFX("sister_moveup.bmp", true);
 	playerspritegfx[PLAYERSPRITE_DOWN] = addFGObjGFX("sister_movedown.bmp", true);
+
+	static const char* const spriteNames[PLAYERSPRITE_MAX] = {
+		"movenone", "moveleft", "moveleftup", "moveleftdown", "moveright",
+		"moverightup", "moverightdown", "moveup", "movedown",
+	};
+	char missing[160] = "";
+	for(Uint32 i = 0; i < PLAYERSPRITE_MAX; i++) {
+		if(playerspritegfx[i] == PSEUDO_FGOBJECTGFXNUM) {
+			size_t used = strlen(missing);
+			snprintf(missing + used, sizeof(missing) - used, " %s", spriteNames[i]);
+		}
+	}
 	
 	playersprite = 0;
 	if(playerspritegfx[PLAYERSPRITE_LEFT] != PSEUDO_FGOBJECTGFXNUM) {
@@ -65,6 +79,12 @@ void initPlayerSprite() {
 	if(playerspritegfx[PLAYERSPRITE_LEFTDOWN] == PSEUDO_FGOBJECTGFXNUM) playerspritegfx[PLAYERSPRITE_LEFTDOWN] = playerspritegfx[PLAYERSPRITE_LEFT];
 	if(playerspritegfx[PLAYERSPRITE_RIGHTUP] == PSEUDO_FGOBJECTGFXNUM) playerspritegfx[PLAYERSPRITE_RIGHTUP] = playerspritegfx[PLAYERSPRITE_RIGHT];
 	if(playerspritegfx[PLAYERSPRITE_RIGHTDOWN] == PSEUDO_FGOBJECTGFXNUM) playerspritegfx[PLAYERSPRITE_RIGHTDOWN] = playerspritegfx[PLAYERSPRITE_RIGHT];
+
+	// Standing still, up and down have no such default: without their own
+	// sprite, updateSpriteGFX() keeps showing the last direction (first frame).
+	if(missing[0]) {
+		ESP_LOGI("playersprite", "optional sprites not in this addon:%s (using the left/right ones)", missing);
+	}
 	
 	spritetick = spritelasttick = BS_GetTicks();
 	
