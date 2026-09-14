@@ -2,13 +2,15 @@
 """Rebuild a .bmf archive from its own (possibly edited) contents.
 
     tools/bmfrepack.py IN.bmf OUT.bmf [--tree DIR] [--rename OLD=NEW ...]
+                       [--drop PATTERN ...]
 
 Takes the record order -- directories, files, addon and music registrations --
 from IN, and the file contents from DIR (a `bmfextract extract` of IN, edited
 as needed; without --tree, IN is extracted to a temporary directory, which
 only makes sense together with --rename or to check the round trip).
 --rename OLD=NEW stores the member OLD under the name NEW, reading its
-contents from DIR/NEW, and may be given many times.
+contents from DIR/NEW, and may be given many times. --drop PATTERN leaves out
+every member whose name matches the shell-style pattern.
 
 The archive is written by bmfcompress, so an unedited repack is byte-identical
 to its input. Every member must exist in DIR: bmfcompress would silently skip
@@ -16,6 +18,7 @@ a missing file, which is how archives came out short before.
 """
 
 import argparse
+import fnmatch
 import os
 import subprocess
 import sys
@@ -40,6 +43,7 @@ def main():
     ap.add_argument("output")
     ap.add_argument("--tree", help="directory holding the member files")
     ap.add_argument("--rename", action="append", default=[], metavar="OLD=NEW")
+    ap.add_argument("--drop", action="append", default=[], metavar="PATTERN")
     args = ap.parse_args()
 
     renames = {}
@@ -71,6 +75,10 @@ def main():
             rest = rest.strip()
             if kind == "file":
                 name = rest.split(None, 1)[1]
+                if any(fnmatch.fnmatchcase(name, pat) for pat in args.drop):
+                    if name in renames:
+                        die("%s is both dropped and renamed" % name)
+                    continue
                 name = renames.pop(name, name)
                 src = os.path.join(tree, name)
                 if not os.path.isfile(src):

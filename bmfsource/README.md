@@ -17,9 +17,10 @@ for a custom level) and `mz_testlevel` (a development test level). Upstream
 builds nine addons; this port ships six.
 
 `mz_xmas2007` sits in between: it is built and kept in `sdcard/addons/`, so its
-artwork *is* recoverable with `bmfextract`, but it is deliberately left out of
-`metadata/metadata.json` and therefore out of the published release while its
-problems are sorted out.
+artwork *is* recoverable with `bmfextract` (and its animation frames are also
+kept here, see below), but it is deliberately left out of
+`metadata/metadata.json` and the addon index while its problems are sorted
+out.
 
 ## Rebuilding an addon
 
@@ -52,3 +53,27 @@ anyway; rebuilding with a corrected source path would fix it properly.
 logs "Can't load FgObjGFX ... ignored" for each, and leaves the player
 invisible when idle. These were never drawn — not in any archive and not in
 the upstream tree — so this is artwork to create, not data to recover.
+
+**The wormhole frames are PNG, not GIF.** `LostPixels` and `Icy` both carry
+the same 24 frames, `wormhole64x64_0001..0024`, upstream as GIF, which the
+port has no loader for. The shipped archives hold lossless PNG conversions
+(pixel-identical, checked) and the two scripts that load them
+(`LostPixels/_wormhole.inc.bsl`, `Icy/level7.bsl`) name `.png`. Rebuilt with
+`tools/bmfrepack.py`; the upstream configs still say `.gif`.
+
+**`mz_xmas2007` keeps one animation frame in three.** Upstream it has 14
+animations (trees, gifts, snowflakes) of 60 frames each, and every level loads
+all 840 -- slow to unpack, slow to load, and a lot of memory. The shipped
+archive keeps frames 0, 3, 6, ... 57 of each, renumbered `0000..0019`, and its
+seven level scripts were changed to match:
+
+| Upstream | Shipped | Meaning |
+|---|---|---|
+| `for i = 0, 59, 1 do` | `for i = 0, 19, 1 do` | frames loaded per animation |
+| `math.random(0, 59)` | `math.random(0, 19)` | random starting frame |
+| `gfxnum == 60 then` | `gfxnum == 20 then` | wrap point |
+| `FLOCKS.gfxwait = 5;` | `FLOCKS.gfxwait = 15;` | physics ticks per frame, so a loop still takes 3 s |
+
+All 840 original frames are kept in `addons/mz_xmas2007/GFX/` (identical to
+upstream), so a denser cut can be made again; the archive went from 889
+members and 10.2 MB to 329 members and 7.9 MB.
